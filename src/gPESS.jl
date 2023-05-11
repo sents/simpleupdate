@@ -553,32 +553,13 @@ function normalized_ops(ops::Dict{Tuple{Int, Int}, Operator{T,2,A}} where {T,A},
     ]
 end
 
-normalized_2site_ops(
-    ops::Dict{Int,Operator},
-    model::PESSModel) = normalized_2site_ops(
-        ops,
-        model.unitcell,
-        model.m_connect,
-        model.tile_pattern,
-        model.sitetypes)
-
-normalized_2site_ops(
-    op::Operator,
-    u::PESSUnitCell,
-    m_connect,
-    tile_pattern) = normalized_2site_ops(
-        Dict(1 => op),
-        u,
-        m_connect,
-        tile_pattern,
-        ones(Int, length(u.sites)))
-
-normalized_2site_ops(op::Operator,
-    model::PESSModel) = normalized_2site_ops(
-        op,
-        model.unitcell,
-        model.m_connect,
-        model.tile_pattern)
+normalized_ops(ops::Dict{Tuple{Int}, Operator{T, 1, A}} where {T,A}, model::PESSModel) = normalized_1site_ops(ops, model.unitcell, model.sitetypes)
+normalized_ops(ops::Dict{Tuple{Int,Int}, Operator{T,2,A}} where {T,A}, model::PESSModel) = normalized_ops(
+    ops, model.unitcell, model.m_connect, model.tile_pattern, model.sitetypes
+)
+normalized_ops(op::Operator{T,N,A}, model::PESSModel) where {T,N,A} = normalized_ops(
+    Dict{NTuple{N, Int}, Operator{T,N,A}}(ntuple(_->1,Val(N))=>op), model
+)
 # gPESS:2 ends here
 
 # [[file:../../notes.org::*gPESS][gPESS:3]]
