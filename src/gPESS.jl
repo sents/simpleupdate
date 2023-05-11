@@ -3,6 +3,11 @@ module gPESS
 using ..OptimalContraction
 using ..Operators
 using ..Util
+export Simplex, PESSSite, PESSUnitCell, PESSModel,
+    nsites, nvirt, virtualsiteinds, nsimps, psize,
+    show, normalized_ops,
+    pess_unitcell_from_ordered_structurematrix,
+    register!, static_pess_su_info
 # gPESS:1 ends here
 
 # [[file:../../notes.org::*gPESS][gPESS:2]]
