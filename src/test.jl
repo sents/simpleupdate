@@ -11,8 +11,22 @@ import LinearAlgebra: I
 
 σ_z = [1 0; 0 -1.0]
 
+σ_x = [0   1;
+       1 0.0]
+σ_y = [0   -im;
+       im 0]
+σ_z = [1   0;
+       0 -1.0]
+
+s_x = σ_x / 2
+s_y = σ_y / 2
+s_z = σ_z / 2
+
+
+heisenberg_2site(J) = -J * (s_x ⊗ s_x + s_y ⊗ s_y + s_z ⊗ s_z)
+spin_1site(μ) = -μ * s_z
+
 ising_2site(J) = -J * (σ_z/2 ⊗ σ_z/2)
-spin_1site(μ) = -μ/2 * σ_z
 
 ising_ops(u::UnitCell, J, μ) = [Site2Operator(ising_2site(J)) + Site2Operator(site1_op)
                                 for site1_op in normalized_1site_ops(spin_1site(μ), u)]
@@ -65,21 +79,6 @@ end
 # Test Ising simple update:2 ends here
 
 # [[file:../../notes.org::*Test Heisenberg with simple update][Test Heisenberg with simple update:1]]
-σ_x = [0   1;
-       1 0.0]
-σ_y = [0   -im;
-       im 0]
-σ_z = [1   0;
-       0 -1.0]
-
-s_x = σ_x / 2
-s_y = σ_y / 2
-s_z = σ_z / 2
-
-
-heisenberg_2site(J) = -J * (s_x ⊗ s_x + s_y ⊗ s_y + s_z ⊗ s_z)
-spin_1site(μ) = -μ * s_z
-
 function test_heisenberg(J=1.0, μ=0.0)
     u = unitcell_from_structurematrix(M_squareab, [2,3,4,5], rand)
 
