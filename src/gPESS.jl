@@ -37,16 +37,18 @@ The next `M` dimensions are meant for the absorbed, 'virtual' sites.
 mutable struct Simplex{M,N,T,A<:AbstractArray{T}}
     tensor::A
     sites::NTuple{N,Int}
+    vsites::NTuple{M,Int}
     siteinds::NTuple{N,Int}
     function Simplex{M}(
         tensor::A,
         sites::NTuple{N,Int},
+        vsites::NTuple{M,Int},
         siteinds::NTuple{N,Int}) where {N,M,T,A<:AbstractArray{T}}
         @assert ndims(tensor) == N + M """
             tensor with dim $(ndims(tensor)) should to have $(N) simplex and $(M)
             virtual dimensions!
             """
-        new{M,N,T,A}(tensor, sites, siteinds)
+        new{M,N,T,A}(tensor, sites, vsites, siteinds)
     end
 end
 
@@ -120,7 +122,8 @@ end
 Base.show(io::IO, S::Simplex{M,N,T,A}) where {M,N,T,A} = print(io,
     "Simplex{$(M),$(N),$(T)}: $(size(S.tensor))", "\n",
     "Connections: \n",
-    ("$i -> $si\n" for (i,si) in zip(S.sites,S.siteinds))...
+    ("$i -> $si\n" for (i,si) in zip(S.sites,S.siteinds))...,
+    "Virtual sites: ", join(string.(S.vsites), ", ")
 )
 
 Base.show(io::IO, s::PESSSite{N,T1,T2}) where {N,T1,T2} = print(io,
@@ -459,6 +462,7 @@ function pess_unitcell_from_ordered_structurematrix(m::AbstractMatrix{Int},
             Simplex{nvirtual}(
                 initt(sdims_full),
                 Tuple(i_site_for_simplex),
+                Tuple([virt[2] for virt in virtual_inds]),
                 Tuple(simplex_site_inds))
         end
         for (i, (virtual_inds, scol))
@@ -467,22 +471,23 @@ function pess_unitcell_from_ordered_structurematrix(m::AbstractMatrix{Int},
 end
 
 
-function normalized_1site_ops(op, u::PESSUnitCell{T}) where {T}
+function normalized_1site_ops(ops::Dict{Tuple{Int}, Operator{T1, 1, A}} where {T1,A},
+                              u::PESSUnitCell{T}, sitetypes) where {T}
     [
-        let esites = enumerate(Int[simplex.sites...])
+        let simplex_sites = (simplex.sites..., simplex.vsites...)
             sum([
+            let
+                occurrences = i <= nsites(simplex) ? nsimps(u.sites[i]) : 1
                 ⊗([i == j ?
-                   op(u.sites[snum]) / nsimps(u.sites[i]) :
+                   1/occurrences * ops[(sitetypes[snum],)].tensor :
                    collect((one(T) * I)(psize(u.sites[osnum])))
-                   for (j, osnum) in esites]...)
-                for (i, snum) in esites])
+                   for (j, osnum) in enumerate(simplex_sites)]...) |> Operator
+            end
+            for (i, snum) in enumerate(simplex_sites)])
         end
         for simplex in u.simplices
-    ]::Vector{<:Array{T}}
+    ]
 end
-
-
-normalized_1site_ops(op::AbstractArray, u::PESSUnitCell) = normalized_1site_ops(s->op, u)
 
 function normalize_edge_ind(inds, n)
     inds |> collect |> sort
@@ -516,20 +521,25 @@ function twosite_normalization_dict(m_connect, tile_pattern)
     Dict(k=>v[1]/v[2] for (k,v) in normal_dict)
 end
 
-function normalized_2site_ops(ops::Dict{Int, Operator},
+function normalized_ops(ops::Dict{Tuple{Int, Int}, Operator{T,2,A}} where {T,A},
     u::PESSUnitCell, m_connect, tile_pattern, sitetypes)
     normalization_dict = twosite_normalization_dict(m_connect, tile_pattern)
     [
+    let simplex_sites = (simplex.sites..., simplex.vsites...)
+        site_dims = vcat(
+            [size(site.tensor)[end] for site in u.sites[simplex.sites |> collect]],
+                         size(simplex.tensor)[virtualsiteinds(simplex)] |> collect)
        sum([
             let
                 pair_id = (s_i, s_j) |> collect |> sort |> Tuple
                 op_id = (sitetypes[s_i], sitetypes[s_j]) |> collect |> sort |> Tuple
                 normalization_dict[pair_id] * nsite_op(ops[op_id],
-                                                       (i, j), nsites(simplex))
+                                                       (i, j+i), site_dims)
             end
-            for (i, s_i) in enumerate(simplex.sites)
-            for (j, s_j) in enumerate(simplex.sites[i+1:end])
+            for (i, s_i) in enumerate(simplex_sites)
+            for (j, s_j) in enumerate(simplex_sites[i+1:end])
         ])
+     end
         for simplex in u.simplices
     ]
 end
