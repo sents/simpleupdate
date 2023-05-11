@@ -138,7 +138,7 @@ Base.show(io::IO, m::PESSModel{T1,T2}) where {T1,T2} = print(io,
     "$(length(m.unitcell.simplices)) simplices\n",
     "Number of sitetypes: ", length(m.sitetypes |> unique), "\n",
     "Defined observables: ",
-    join([string.(keys(m.observables))], ", ")
+    join(string.(keys(m.observables)), ", ")
 )
 
 
@@ -519,6 +519,15 @@ function twosite_normalization_dict(m_connect, tile_pattern)
         normal_dict[site_pair] = n_physical + 1, n_nominal + v
     end
     Dict(k=>v[1]/v[2] for (k,v) in normal_dict)
+end
+
+function register!(model::PESSModel, ops, name)
+    normalized_ops = normalized_ops(ops, model)
+    model.observables[name] = normalized_ops
+end
+
+function register!(model::PESSModel, ops::Vector{Operator}, name)
+    model.observables[name] = ops
 end
 
 function normalized_ops(ops::Dict{Tuple{Int, Int}, Operator{T,2,A}} where {T,A},
