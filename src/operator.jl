@@ -25,7 +25,8 @@ Base.ndims(::Type{<:AbstractOperator{<:Any, N}}) where N = N*2
 
 function Base.exp(op::Operator{T,N}) where {T,N}
     s = size(op.tensor)
-    return reshape(exp(reshape(op.tensor, (prod(s[1:N]), prod(s[N+1:2N])))), s)
+    return reshape(exp(reshape(op.tensor, (prod(s[1:N]), prod(s[N+1:2N])))),
+                   s) |> Operator
 end
 
 function Base.:+(a::Operator{T,N}, b::Operator{T,N}) where {T,N}
