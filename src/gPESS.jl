@@ -434,7 +434,7 @@ function pess_unitcell_from_ordered_structurematrix(m::AbstractMatrix{Int},
     virtual_sites_for_simplex = [Tuple{Int,Int}[] for _ in simplex_dims]
     for (i, siterow) in enumerate(eachrow(m))
         i_simplex_for_site = findall(siterow .!= 0)
-        if count(siterow .!= 0) == 1 # virtual site
+        if length(i_simplex_for_site) == 1 # virtual site
             i_simplex = only(i_simplex_for_site)
             siteind = siterow[i_simplex]
             virtual_sites = virtual_sites_for_simplex[i_simplex]
@@ -454,7 +454,8 @@ function pess_unitcell_from_ordered_structurematrix(m::AbstractMatrix{Int},
         Tuple(initv.(dims[1:end-1]))) for dims in sitedims]
     simplices = (Simplex{M,N,T1} where {M,N})[
         let sdims = simplex_dims[i]
-            i_site_for_simplex = findall(scol .!= 0)
+            i_site_for_simplex = filter(i_s->count(!=(0), m[i_s,:]) > 1,
+                                        findall(scol .!= 0))
             simplex_site_inds = scol[i_site_for_simplex]
             virtual_dims = [pdims[vsite] for (_, vsite) in virtual_inds]
             nvirtual = length(virtual_dims)
