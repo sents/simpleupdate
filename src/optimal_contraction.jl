@@ -1,6 +1,6 @@
 # [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:1]]
 module OptimalContraction
-export ContractionCache, optimal_contraction_inds, optimal_contraction, save!
+export ContractionCache, optimal_contraction_inds, optimal_contraction, save!, ==
 # Optimal Contraction:1 ends here
 
 # [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:2]]
@@ -33,10 +33,17 @@ function optimal_contraction(
     optimal_contraction(size.(tensors), indices; cache=cache)
 end
 
-struct ContractionSignature{T}
-    tensorsizes::Vector{Vector{T}}
-    indices
+struct ContractionSignature{T,N}
+    tensorsizes::NTuple{N, NTuple{M, T} where M}
+    indices::NTuple{N, NTuple{M, Int} where M}
 end
+ContractionSignature(tensorsizes,
+                    indices) = ContractionSignature(Tuple(Tuple.(tensorsizes)),
+                                                    Tuple(Tuple.(indices)))
+
+
+Base.:(==)(c1::ContractionSignature,
+           c2::ContractionSignature) = c1.indices==c2.indices && c1.tensorsizes==c2.tensorsizes
 
 const OptimalContractionInfo = @NamedTuple begin
     order :: Vector{Any}
@@ -47,10 +54,11 @@ struct ContractionCache
     table::Dict{ContractionSignature,OptimalContractionInfo}
     filename::Union{Nothing,String}
     autosave::Bool
-    function ContractionCache(;filename=nothing, autosave=false)
-        @assert !autosave || !isnothing(filename)
-        new(Dict{ContractionSignature,OptimalContractionInfo}(), filename, autosave)
-    end
+end
+
+function ContractionCache(;filename=nothing, autosave=false)
+    @assert !autosave || !isnothing(filename)
+    ContractionCache(Dict{ContractionSignature,OptimalContractionInfo}(), filename, autosave)
 end
 
 function optimal_contraction(contraction_signature::ContractionSignature,
@@ -61,6 +69,48 @@ function optimal_contraction(contraction_signature::ContractionSignature,
         return optimal_contraction(contraction_signature)
     end
 end
+
+Base.sort(t1::NTuple) = t1 |> collect |> sort |> Tuple
+
+without(vs, ns) = [v for (i,v) in enumerate(vs) if i ∉ ns]
+
+function make_ind_isless(start_inds)
+    function lt_inds(((ft1, fi1, s1), tot1, toi1),
+                     ((ft2, fi2, s2), tot2, toi2), visited=Int[])
+        inds = without(start_inds, visited)
+        s1 < s2 && return true
+        next1 = get(inds, tot1, (0, (0, 0)))
+        next2 = get(inds, tot2, (0, (0, 0)))
+        (next2 == 0) && return false
+        (next1 == 0) && (next2 != 0) && return true
+
+        (o1, on1) = only([(n[2][1], i)
+            for (i, n) in enumerate(next1)])
+        (o2, on2) = only([(n[2][1], i)
+            for (i, n) in enumerate(next2)])
+
+        (o1, next1[2][1]) == (o2, next2[2][1]) && return false # equal
+        is1 = sort(without(next1, (on1,)); lt=(a, b) -> lt_inds(a, b, [o1, o2]))
+        is2 = sort(without(next2, (on2,)); lt=(a, b) -> lt_inds(a, b, [o1, o2]))
+
+
+
+    end
+end
+
+function normalize_contraction_signature(sizes, inds)
+    cont = zip.(sizes, ninds_conts(inds)) .|> collect
+end
+
+ninds_conts(ninds) = [
+    [
+        [(k, r) for (k, r) in enumerate(get(findall(oinds.==ind), 1, 0) for oinds in ninds)
+         if r != 0 && k != i
+        ] |> x -> get(x, 1, (0, 0))
+        for ind in inds
+    ]::Vector{Tuple{Int,Int}}
+    for (i, inds) in enumerate(ninds)
+]
 
 function cached_optimal_contraction(contraction_signature, cache::ContractionCache)
     if haskey(cache.table, contraction_signature)
@@ -78,11 +128,20 @@ end
 
 function save!(cache::ContractionCache)
     @assert !isnothing(cache.filename) "ContractionCache needs a filename to save!"
-    save_object(cache.filename, cache)
+    table = Dict(
+        (collect(collect.(k.tensorsizes)), collect(collect.(k.indices))) => v
+        for (k,v) in cache.table
+    )
+    save_object(cache.filename, (table, cache.filename, cache.autosave))
 end
 
 function ContractionCache(filename::String)
-    return load_object(filename)
+    (vtable, filename, autosave) = load_object(filename)
+    table = Dict(
+        ContractionSignature(Tuple(Tuple.(k[1])), Tuple(Tuple.(k[2]))) => v
+        for (k,v) in vtable
+    )
+    ContractionCache(table, filename, autosave)
 end
 
 function optimal_contraction(contraction_signature::ContractionSignature{T}) where T
@@ -158,7 +217,7 @@ function testf(D,p)
                                                           cache=cache)
     return order, inds
 end
-order, inds = testf(10,2)
+# order, inds = testf(10,2)
 # Optimal Contraction:2 ends here
 
 # [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:3]]
