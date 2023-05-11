@@ -55,6 +55,9 @@ mutable struct Bond{T<:AbstractVector}
     Bind::Int
 end
 
+Base.show(io::IO, b::Bond{T}) where T = print(io,
+  "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))"
+)
 """
     UnitCell(sites, bonds)
 
