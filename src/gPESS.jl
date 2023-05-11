@@ -161,9 +161,9 @@ A single PESS simple update step on a single simplex consisting of:
 - Reversing the QR factorisation of the sites
 - Reemitting the environment contracted in the first step
 """
-function simpleupdate_step(sites::Vector{PESSSite{T1,T2}},
-    S::Simplex{T1,N}, op, info,
-    max_bond_rank, sv_cutoff) where {T1,T2,N}
+function simpleupdate_step(sites::Vector,
+    S::Simplex{M,N,T1}, op, info,
+    max_bond_rank, sv_cutoff) where {T1,N,M}
     qs = Array{T1}[]
     rs = Array{T1}[]
     for (i, site) in enumerate(sites)
@@ -180,13 +180,14 @@ function simpleupdate_step(sites::Vector{PESSSite{T1,T2}},
     step_diff = 0.0
 
     for (i, site) in enumerate(sites)
+        # if i == 1 return T, info.svd_perms[i], max_bond_rank, sv_cutoff end
         U, Σ = eigsvd_trunc(T, info.svd_perms[i], max_bond_rank, sv_cutoff)
         step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
         site.envVectors[info.sinds[i]] = Σ
         push!(Us, U)
     end
 
-    recalc_S!(S, T, Us, info.S)
+    recalc_S!(S, T, Tuple(Us), info.S)
 
     for (i, (site, U, q)) in enumerate(zip(sites, Us, qs))
         deqr_site!(site, q, U, info.qr_perms[i])
@@ -228,23 +229,23 @@ end
         :(S[$(i_S...)]),
         (:(rs[$i][$(i_rs[i]...)]) for i in 1:N)...
     )
-    return :(@tensor out[:] = $rightside)
+    return :(@tensor out[:] := $rightside)
 end
 
-function eigsvd_trunc(T, info, max_bond_rank, sv_cutoff)
-    Tsize_perm = size(T)[info.perm]
+# Maybe use tensor contraction to save permutation
+function eigsvd_trunc(T, perm::NTuple{N, Int}, max_bond_rank, sv_cutoff) where N
+    Tsize_perm = size(T)[collect(perm)] :: NTuple{N, Int}
     sT_open = Tsize_perm[1:2]
     sT_closed = Tsize_perm[3:end]
-    T_reshaped = reshape(permutedims(T, info.perm), (prod(sT_open), prod(sT_closed)))
-    λ, U_r = eigen(T_reshaped * T_reshaped')
-    sp = sortperm(λ, order=ReverseOrdering)
-    Σ = sqrt.(λ)[sp]
-    U = U_r[:, sp]
-    Σ ./= norm(Σ)
-    svs_over_cutoff = (count >= (sv_cutoff), Σ)
+    T_reshaped = reshape(permutedims(T, perm), (prod(sT_open), prod(sT_closed)))
+    λ, U_r = eigen!(Hermitian(T_reshaped * T_reshaped'))
+    sp = sortperm(λ, order=ReverseOrdering())
+    λ = λ[sp]
+    λ ./= sum(abs, λ)
+    svs_over_cutoff = count(>=(sv_cutoff^2), λ)
     new_dim = min(svs_over_cutoff, max_bond_rank)
-    U_trunc = U[:, 1:new_dim]
-    Σ_trunc = Σ[1:new_dim]
+    Σ_trunc = sqrt.(λ[1:new_dim])
+    U_trunc = U_r[:, sp[1:new_dim]]
     return reshape(U_trunc, (sT_open..., new_dim)), Σ_trunc
 end
 
@@ -254,14 +255,14 @@ end
         :(T[$(i_T...)]),
         (:(conj(Us[$i])[$(i_Us[i]...)]) for i in 1:N)...
     )
-    return :(S.tensor = @tensor _[:] := $rightside)
+    return :(@tensor new_S[:] := $rightside; S.tensor = new_S / norm(new_S))
 end
 
 function deqr_site!(site, q, U, perm)
     Asize_permuted = size(site.tensor)[perm]
     s_q = Asize_permuted[1:end-2]
     s_physical = size(site.tensor)[end]
-    s_new_bond = size(U)[2]
+    s_new_bond = size(U)[3]
     @tensor A_new_rp[:] := q[-1,1] * U[1, -3, -2]
     A_new_p = reshape(A_new_rp, (s_q..., s_new_bond, s_physical))
     site.tensor = permutedims(A_new_p, sortperm(perm))
@@ -275,16 +276,19 @@ function rsize(site::PESSSite, D)
     return (leftsize, rightsize...)
 end
 
-env_inds(S::Simplex) = Tuple(
-        Tuple(map(i -> (i, Val(i)), filter(!=(sind), 1:nsimps(site))))
-        for (site, sind) in zip(S.sites, S.siteinds))
+site_env_inds(u::PESSUnitCell, S::Simplex) = Tuple(
+    Tuple(
+        [(i,ntuple(x->x==i ? Colon() : 1, i)) for i in 1:nsimps(u.sites[site]) if i != sind]
+    )
+    for (site, sind) in zip(S.sites, S.siteinds)
+)
 
 function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank,
     cache::ContractionCache)
     S = u.simplices[i_S]
     sites = u.sites[collect(S.sites)]
     sinds = S.siteinds
-    env_inds = env_inds(S)
+    env_inds = site_env_inds(u, S)
     qrperms = Tuple(
         let N = nsimps(site)
             moveind!(collect(1:N+1), sind, N)
@@ -387,7 +391,7 @@ function calc_simplex_braket(u::PESSUnitCell, n_simplex, cache::ContractionCache
         cache
     )
 
-    braket = ncon(tensors, ninds, conjlist)
+    braket = ncon(tensors, collect.(ninds), conjlist)
     return braket
 end
 
