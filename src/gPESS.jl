@@ -13,6 +13,7 @@ export Simplex, PESSSite, PESSUnitCell, PESSModel,
 # [[file:../../notes.org::*gPESS][gPESS:2]]
 using LinearAlgebra: full!
 using Base: ReverseOrdering
+using StaticArrays
 using LinearAlgebra
 using TensorOperations
 import Combinatorics: combinations
@@ -56,17 +57,17 @@ The first N Dimensions of `tensor` are connected to Simplices,
 the last Dimension represents the physical index.
 # Fields
 - `tensor :: M`: The tensor containing N dimensions connecting to simplices and one physical
-- `envVectors :: NTuple{N,Vector{T2}}`: Vectors containing entanglement mean field weights in the direction of the connected simplices
+- `envVectors :: SizedArray{N,Vector{T2}}`: Vectors containing entanglement mean field weights in the direction of the connected simplices
 """
 mutable struct PESSSite{N,T1,T2,M<:AbstractArray{T1}}
     tensor::M
-    envVectors::NTuple{N,Vector{T2}}
+    envVectors::SizedVector{N,Vector{T2}}
     function PESSSite(tensor::M,
         envVectors::NTuple{N,Vector{T2}}) where {N, T1, T2, M<:AbstractArray{T1}}
         @assert ndims(tensor)==N+1 """
         Dimension of `tensor` has to be N+1=$(N+1)!
         """
-        new{N,T1,T2,M}(tensor, envVectors)
+        new{N,T1,T2,M}(tensor, SizedVector{N,Vector{T2}}(envVectors))
     end
 end
 
