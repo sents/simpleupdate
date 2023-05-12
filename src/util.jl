@@ -6,7 +6,8 @@ export ncon_indices,
     Logger, record!,
     tile_structurematrix,
     tile_structurematrix_with_origin,
-    make_ordered_structurematrix
+    make_ordered_structurematrix,
+    connection_matrix_from_connections
 # Util:1 ends here
 
 # [[file:../../notes.org::*Util][Util:2]]
@@ -152,6 +153,18 @@ function make_ordered_structurematrix(m0)
         for si in findall(x->x!=0, Scol)
             n = get(D, si, 0) + 1
             m[si, Si] = D[si] = n
+        end
+    end
+    m
+end
+
+function connection_matrix_from_connections(connections)
+    n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
+    n_cells = maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten)
+    m = zeros(Int, (n_sites * n_cells, length(connections)))
+    for (i, sites) in enumerate(connections)
+        for site in sites
+            m[(site[2]-1)*n_sites+site[1], i] = site[3]
         end
     end
     m
