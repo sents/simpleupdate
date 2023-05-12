@@ -347,8 +347,8 @@ function calc_simplex_ev(u::PESSUnitCell, op, n_simplex, cache::ContractionCache
     M = nvirt(S)
     NM = N+M
     braket = calc_simplex_braket(u, n_simplex, cache)
-    ev = ncon((braket, op), (collect(1:(2*NM)), collect(1:(2*NM))))
-    norm = ncon((braket,), ([1:NM;1:NM]))
+    ev = ncon((braket, op.tensor), (collect(1:(2*NM)), collect(1:(2*NM))))
+    norm = ncon((braket,), ([1:NM;1:NM],))
     return ev ./ norm
 end
 
