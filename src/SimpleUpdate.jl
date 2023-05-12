@@ -4,5 +4,5 @@ include("util.jl")
 include("operator.jl")
 include("gPEPS.jl")
 include("gPESS.jl")
-include("test.jl")
+include("examples.jl")
 end

@@ -1,9 +1,10 @@
 # [[file:../../notes.org::*Test Ising simple update][Test Ising simple update:1]]
-module Tests
+module Examples
 using ..OptimalContraction
 using ..Operators
 using ..Util
 using ..gPEPS
+using ..ConnectionMatrices
 # Test Ising simple update:1 ends here
 
 # [[file:../../notes.org::*Test Ising simple update][Test Ising simple update:2]]
