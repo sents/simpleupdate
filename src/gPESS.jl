@@ -148,6 +148,67 @@ virtualsiteinds(s::Simplex) = range(nsites(s)+1, nvirt(s))
 nsimps(::PESSSite{N}) where N = N
 psize(site::PESSSite) = size(site.tensor)[end]
 
+
+function simple_update(m::PESSModel; kwargs...)
+    simple_update(m.unitcell, m.observables[:H]; kwargs...)
+end
+
+"""
+`simple_update(u::PESSUnitCell, ops, max_bond_dim, convergence, maxit, logger)`
+Iterated simple update of unit cell with one operator per bond
+"""
+function simple_update(u::PESSUnitCell, ops;
+                       τ₀=1.0,
+                       max_bond_rank = 10,
+                       min_τ=1e-5,
+                       convergence=1e-8,
+                       sv_cutoff=1e-8,
+                       maxit=-1,
+    logger=Logger{LogStep}([], 0),
+    cache::ContractionCache=ContractionCache())
+    bondinfo = [static_pess_su_info(u, i, max_bond_rank, cache)
+                for (i, _) in enumerate(ops)]
+    it = 0
+    τ = τ₀
+    while τ >= min_τ
+        println("τ: ",τ)
+        simple_update(u, ops, bondinfo, τ;
+                      max_bond_rank=max_bond_rank,
+                      convergence=convergence,
+                      sv_cutoff=sv_cutoff,
+                      maxit=maxit-it,
+                      logger=logger)
+        it += logger.log[end].it
+        τ /= 10
+    end
+    return logger
+end
+
+function simple_update(u, ops, info, τ;
+                       max_bond_rank=10,
+                       convergence=1e-8,
+                       sv_cutoff=1e-8,
+                       maxit=-1,
+    logger=nothing)
+    eops = [exp(-τ * op) for op in ops]
+    for it in 1:maxit
+        diff = 0.0
+        for (op, info, simplex) in zip(eops, info, u.simplices)
+            d = simple_update_step!(u.sites[collect(simplex.sites)],
+                                    simplex,
+                                    op, info,
+                                    info, max_bond_rank, sv_cutoff)
+            diff += d
+        end
+        !isnothing(logger) && record!(logger, (diff,))
+        if diff < convergence
+            return logger
+        end
+    end
+    return logger
+end
+
+
 """
     simpleupdate_step(sites, S, op, info, max_bond_rank, sv_cutoff)
 A single PESS simple update step on a single simplex consisting of:
