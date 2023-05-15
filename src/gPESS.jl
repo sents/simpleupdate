@@ -63,7 +63,7 @@ the last Dimension represents the physical index.
 """
 mutable struct PESSSite{N,T1,T2,M<:AbstractArray{T1}}
     tensor::M
-    envVectors::SizedVector{N,Vector{T2}}
+    envVectors::SizedVector{N,Vector{T2},Vector{Vector{T2}}}
     function PESSSite(tensor::M,
         envVectors::NTuple{N,Vector{T2}}) where {N, T1, T2, M<:AbstractArray{T1}}
         @assert ndims(tensor)==N+1 """
@@ -161,9 +161,9 @@ A single PESS simple update step on a single simplex consisting of:
 - Reversing the QR factorisation of the sites
 - Reemitting the environment contracted in the first step
 """
-function simpleupdate_step(sites::Vector,
+function simpleupdate_step(sites::Vector{PESSSite{<:Any,T1,T2}},
     S::Simplex{M,N,T1}, op, info,
-    max_bond_rank, sv_cutoff) where {T1,N,M}
+    max_bond_rank, sv_cutoff) where {T1,T2,N,M}
     qs = Array{T1}[]
     rs = Array{T1}[]
     for (i, site) in enumerate(sites)
@@ -173,7 +173,11 @@ function simpleupdate_step(sites::Vector,
         push!(rs, r)
     end
 
-    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)
+    T = contract_op(
+        op.tensor,
+        S.tensor,
+        tuple(rs...),
+        info.contract_op) :: Array{T1}
 
     Us = Array{T1}[]
 
@@ -181,7 +185,9 @@ function simpleupdate_step(sites::Vector,
 
     for (i, site) in enumerate(sites)
         # if i == 1 return T, info.svd_perms[i], max_bond_rank, sv_cutoff end
-        U, Σ = eigsvd_trunc(T, info.svd_perms[i], max_bond_rank, sv_cutoff)
+        U, Σ = eigsvd_trunc(T,
+            info.svd_perms[i],
+            max_bond_rank, sv_cutoff)::Tuple{Array{T1,3}, Vector{T2}}
         step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
         site.envVectors[info.sinds[i]] = Σ
         push!(Us, U)
@@ -205,7 +211,7 @@ function qr_site(site, perm)
         (prod(sA_q), prod(sA_r)))
     q, r = qr(A_reshaped)
     r_reshaped = reshape(r, (sA_qr, sA_r...))
-    return q, r_reshaped
+    return Matrix(q), r_reshaped
 end
 
 function contract_env!(site::PESSSite, inds)
@@ -258,7 +264,8 @@ end
     return :(@tensor new_S[:] := $rightside; S.tensor = new_S / norm(new_S))
 end
 
-function deqr_site!(site, q, U, perm)
+function deqr_site!(site::PESSSite{N},
+    q, U, perm) where N
     Asize_permuted = size(site.tensor)[perm]
     s_q = Asize_permuted[1:end-2]
     s_physical = size(site.tensor)[end]
@@ -291,7 +298,7 @@ function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank,
     env_inds = site_env_inds(u, S)
     qrperms = Tuple(
         let N = nsimps(site)
-            moveind!(collect(1:N+1), sind, N)
+            SVector{N+1}(moveind!(collect(1:N+1), sind, N))
         end
         for (site, sind) in zip(sites, sinds))
 
