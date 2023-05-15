@@ -61,16 +61,18 @@ function moveind!(a, from, to)
 end
 
 struct Logger{LogStep}
+    logf
     log :: Vector{LogStep}
-    printit :: Int
 end
 
-Logger{LogStep}(printit=0) where LogStep = Logger{LogStep}(LogStep[], printit)
-
-function record!(logger::Logger{LogStep}, step::LogStep) where LogStep
-    if logger.printit > 0 && length(log) % logger.printit == 0
+Logger{LogStep}(printit::Int=0) where LogStep = Logger{LogStep}(LogStep[]) do log, step
+    if step.it % printit == 0
         println(step)
     end
+end
+
+function record!(logger::Logger{LogStep}, step::LogStep) where LogStep
+    logf(log, step)
     push!(logger.log, step)
 end
 
