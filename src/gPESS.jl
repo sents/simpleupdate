@@ -149,8 +149,16 @@ nsimps(::PESSSite{N}) where N = N
 psize(site::PESSSite) = size(site.tensor)[end]
 
 
+"""
+`simple_update(m::PESSModel; τ₀, max_bond_rank, convergence, maxit, logger)`
+Iterated simple update of unit cell with one operator per simplex
+"""
 function simple_update(m::PESSModel; kwargs...)
     simple_update(m.unitcell, m.observables[:H]; kwargs...)
+end
+
+const LogStep = @NamedTuple begin
+    diff :: Float64
 end
 
 """
@@ -164,7 +172,7 @@ function simple_update(u::PESSUnitCell, ops;
                        convergence=1e-8,
                        sv_cutoff=1e-8,
                        maxit=-1,
-    logger=Logger{LogStep}([], 0),
+    logger=Logger{LogStep}(;printit=50),
     cache::ContractionCache=ContractionCache())
     bondinfo = [static_pess_su_info(u, i, max_bond_rank, cache)
                 for (i, _) in enumerate(ops)]
@@ -178,7 +186,7 @@ function simple_update(u::PESSUnitCell, ops;
                       sv_cutoff=sv_cutoff,
                       maxit=maxit-it,
                       logger=logger)
-        it += logger.log[end].it
+        it = length(logger.log)
         τ /= 10
     end
     return logger
@@ -191,19 +199,19 @@ function simple_update(u, ops, info, τ;
                        maxit=-1,
     logger=nothing)
     eops = [exp(-τ * op) for op in ops]
-    for it in 1:maxit
+    it = 0
+    while it <= maxit || maxit < 0
         diff = 0.0
         for (op, info, simplex) in zip(eops, info, u.simplices)
             d = simple_update_step!(u.sites[collect(simplex.sites)],
-                                    simplex,
-                                    op, info,
-                                    info, max_bond_rank, sv_cutoff)
+                                    simplex, op, info, max_bond_rank, sv_cutoff)
             diff += d
         end
         !isnothing(logger) && record!(logger, (diff,))
         if diff < convergence
             return logger
         end
+        it += 1
     end
     return logger
 end
@@ -222,7 +230,7 @@ A single PESS simple update step on a single simplex consisting of:
 - Reversing the QR factorisation of the sites
 - Reemitting the environment contracted in the first step
 """
-function simpleupdate_step(sites::Vector{PESSSite{<:Any,T1,T2}},
+function simple_update_step!(sites::Vector{PESSSite{<:Any,T1,T2}},
     S::Simplex{M,N,T1}, op, info,
     max_bond_rank, sv_cutoff) where {T1,T2,N,M}
     qs = Array{T1}[]
