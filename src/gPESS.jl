@@ -245,9 +245,8 @@ function simpleupdate_step(sites::Vector{PESSSite{<:Any,T1,T2}},
     step_diff = 0.0
 
     for (i, site) in enumerate(sites)
-        # if i == 1 return T, info.svd_perms[i], max_bond_rank, sv_cutoff end
         U, Σ = eigsvd_trunc(T,
-            info.svd_perms[i],
+            info.svd_inds[i],
             max_bond_rank, sv_cutoff)::Tuple{Array{T1,3}, Vector{T2}}
         step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
         site.envVectors[info.sinds[i]] = Σ
@@ -300,12 +299,12 @@ end
 end
 
 # Maybe use tensor contraction to save permutation
-function eigsvd_trunc(T, perm::NTuple{N, Int}, max_bond_rank, sv_cutoff) where N
-    Tsize_perm = size(T)[collect(perm)] :: NTuple{N, Int}
-    sT_open = Tsize_perm[1:2]
-    sT_closed = Tsize_perm[3:end]
-    T_reshaped = reshape(permutedims(T, perm), (prod(sT_open), prod(sT_closed)))
-    λ, U_r = eigen!(Hermitian(T_reshaped * T_reshaped'))
+function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
+    T_contr = eig_contraction(T, inds)
+    out_size = size(T)[inds[3]]
+    λ, U_r = eigen!(Hermitian(
+        reshape(T_contr, (prod(out_size), prod(out_size)))
+    ))
     sp = sortperm(λ, order=ReverseOrdering())
     λ = λ[sp]
     λ ./= sum(abs, λ)
@@ -313,7 +312,16 @@ function eigsvd_trunc(T, perm::NTuple{N, Int}, max_bond_rank, sv_cutoff) where N
     new_dim = min(svs_over_cutoff, max_bond_rank)
     Σ_trunc = sqrt.(λ[1:new_dim])
     U_trunc = U_r[:, sp[1:new_dim]]
-    return reshape(U_trunc, (sT_open..., new_dim)), Σ_trunc
+    return reshape(U_trunc, (out_size..., new_dim)), Σ_trunc
+end
+
+@generated function eig_contraction(T::AbstractArray{T1,N}, (inds_open, inds_closed, inds_out)::Tuple{NTuple{2,Int}, NTuple{M,Int}, SVector{2,Int}}) where {T1,N,M}
+    syms = (gensym(), gensym(), gensym())
+    quote
+        out = similar(T, $T1, size(T)[vcat(inds_out, inds_out)])
+        TensorOperations.contract!(true, T, :N, T, :C, false, out,
+            inds_open, inds_closed, inds_open, inds_closed, (1,2,3,4), $syms)
+    end
 end
 
 @generated function recalc_S!(S, T, Us::NTuple{N,T_U},
@@ -388,6 +396,15 @@ function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank,
     T_dim = 2 * n_sites + n_virt #site bonds, site physical, virtual physical
     Tperms = Tuple(Tuple(moveind!(moveind!(collect(1:T_dim), i, 1), n_sites + i, 2))
              for (i, _) in enumerate(sites))
+    svd_inds = Tuple(
+        let
+            open_inds =  (i, n_sites+i)
+            closed_inds = Tuple([n for n in 1:T_dim if n ∉ open_inds])
+            out_inds = SVector{2}(open_inds)
+            (open_inds, closed_inds, out_inds)
+        end
+        for i in 1:n_sites
+    )
 
     T_size = ([rsize[1] for rsize in rsizes]...,
         psizes...)
@@ -403,7 +420,7 @@ function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank,
         env_inds = env_inds,
         qr_perms = qrperms,
         contract_op = (Val(i_c_op), Val(i_c_S), Val(i_c_rs)),
-        svd_perms = Tperms,
+        svd_inds = svd_inds,
         S = (Val(i_reS_T), Val(i_reS_Us)),
         sinds = sinds
         )
