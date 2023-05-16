@@ -67,6 +67,7 @@ end
     (:(xs[$i][$((indsleft[i]...,indsright[i]...)...)]) for i in 1:length(dims))...)
     return :(@tensor _[:] := $rightside)
 end
+⊗(x::AbstractArray) = x
 
 ⊗(os::Vararg{Operator, N}) where N = ⊗(getproperty.(os, :tensor))
 
