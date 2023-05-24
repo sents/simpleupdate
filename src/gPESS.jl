@@ -471,6 +471,10 @@ function calc_simplex_braket(u::PESSUnitCell, n_simplex, cache::ContractionCache
     S = u.simplices[n_simplex]
     N = nsites(S)
     sites = u.sites[collect(S.sites)]
+    env_inds = site_env_inds(u, S)
+    for (site, env_ind) in zip(sites, env_inds)
+        contract_env!(site, env_ind)
+    end
     site_tensors = [s.tensor for s in sites]
     tensors = [S.tensor, S.tensor, site_tensors..., site_tensors...]
     conjlist = vcat([false, true], repeat([false], N), repeat([true], N))
@@ -507,6 +511,10 @@ function calc_simplex_braket(u::PESSUnitCell, n_simplex, cache::ContractionCache
     )
 
     braket = ncon(tensors, collect.(ninds), conjlist)
+
+    for (site, env_ind) in zip(sites, env_inds)
+        emit_env!(site, env_ind)
+    end
     return braket
 end
 
