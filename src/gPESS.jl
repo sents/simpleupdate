@@ -7,7 +7,7 @@ export Simplex, PESSSite, PESSUnitCell, PESSModel,
     nsites, nvirt, virtualsiteinds, nsimps, psize,
     show, normalized_ops,
     pess_unitcell_from_ordered_structurematrix,
-    register!, static_pess_su_info
+    register!, static_pess_su_info, per_site_energy
 # gPESS:1 ends here
 
 # [[file:../../notes.org::*gPESS][gPESS:2]]
@@ -694,6 +694,17 @@ normalized_ops(ops::Dict{Tuple{Int,Int}, Operator{T,2,A}} where {T,A}, model::PE
 normalized_ops(op::Operator{T,N,A}, model::PESSModel) where {T,N,A} = normalized_ops(
     Dict{NTuple{N, Int}, Operator{T,N,A}}(ntuple(_->1,Val(N))=>op), model
 )
+
+function per_site_energy(model::PESSModel, cache)
+    nsites = length(model.unitcell.sites)
+    simplex_energies = [
+        calc_simplex_ev(model.unitcell, op, i, cache)
+        for (i, op) in enumerate(model.observables[:H])
+    ]
+    real(sum(simplex_energies) / nsites)
+end
+
+
 # gPESS:2 ends here
 
 # [[file:../../notes.org::*gPESS][gPESS:3]]
