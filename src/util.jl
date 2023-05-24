@@ -160,9 +160,10 @@ function make_ordered_structurematrix(m0)
     m
 end
 
-function connection_matrix_from_connections(connections)
-    n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
+function connection_matrix_from_connections(connections,
     n_cells = maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten)
+)
+    n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
     m = zeros(Int, (n_sites * n_cells, length(connections)))
     for (i, sites) in enumerate(connections)
         for site in sites

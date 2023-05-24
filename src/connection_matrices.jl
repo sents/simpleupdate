@@ -38,9 +38,13 @@ M_PESS_kagome_3 = [
     ((1,4,2), (2,2,1), (3,3,2))
 ] |> connection_matrix_from_connections
 
+M_PESS_triangular = connection_matrix_from_connections([
+    ((1,1,1), (1,2,2), (1,3,3))
+], 4)
+
 connection_matrix_dict = Dict(
     "PEPS_floretpentagon" => M_PEPS_floretpentagon,
-    "PESS_floretpentagon_petaltwirl" => M_PEPS_floretpentagon_petaltwirl,
+    "PESS_floretpentagon_petaltwirl" => M_PESS_floretpentagon_petaltwirl,
     "PESS_square" => M_PESS_square,
     "PESS_kagome_3" => M_PESS_kagome_3
 )
