@@ -181,6 +181,7 @@ end
 
 const LogStep = @NamedTuple begin
     diff :: Float64
+    Δs_trunc :: Matrix{Float64}
 end
 
 """
@@ -224,12 +225,14 @@ function simple_update(u, ops, info, τ;
     it = 0
     while it <= maxit || maxit < 0
         diff = 0.0
+        simplex_Δs_trunc = Vector{Float64}[]
         for (op, info, simplex) in zip(eops, info, u.simplices)
-            d = simple_update_step!(u.sites[collect(simplex.sites)],
+            d, Δs_trunc = simple_update_step!(u.sites[collect(simplex.sites)],
                                     simplex, op, info, max_bond_rank, sv_cutoff)
             diff += d
+            push!(simplex_Δs_trunc, Δs_trunc)
         end
-        !isnothing(logger) && record!(logger, (diff,))
+        !isnothing(logger) && record!(logger, (diff, stack(simplex_Δs_trunc)))
         if diff < convergence
             return logger
         end
@@ -273,14 +276,16 @@ function simple_update_step!(sites::Vector{PESSSite{<:Any,T1,T2}},
     Us = Array{T1}[]
 
     step_diff = 0.0
+    Δs_trunc = Float64[]
 
     for (i, site) in enumerate(sites)
-        U, Σ = eigsvd_trunc(T,
+        U, Σ, Δ_trunc = eigsvd_trunc(T,
             info.svd_inds[i],
-            max_bond_rank, sv_cutoff)::Tuple{Array{T1,3}, Vector{T2}}
+            max_bond_rank, sv_cutoff)::Tuple{Array{T1,3}, Vector{T2}, Float64}
         step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
         site.envVectors[info.sinds[i]] = Σ
         push!(Us, U)
+        push!(Δs_trunc, Δ_trunc)
     end
 
     recalc_S!(S, T, Tuple(Us), info.S)
@@ -289,7 +294,7 @@ function simple_update_step!(sites::Vector{PESSSite{<:Any,T1,T2}},
         deqr_site!(site, q, U, info.qr_perms[i])
         emit_env!(site, info.env_inds[i])
     end
-    return step_diff
+    return step_diff, Δs_trunc
 end
 
 function qr_site(site, perm)
@@ -333,16 +338,16 @@ function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
     T_contr = eig_contraction(T, inds)
     out_size = size(T)[inds[3]]
     λ, U_r = eigen!(Hermitian(
-        reshape(T_contr, (prod(out_size), prod(out_size)))
-    ))
-    sp = sortperm(λ, order=ReverseOrdering())
-    λ = λ[sp]
+        reshape(T_contr, (prod(out_size), prod(out_size)))),
+        sortby=λ->(-real(λ), -imag(λ))
+    )
     λ ./= sum(abs, λ)
     svs_over_cutoff = count(>=(sv_cutoff^2), λ)
     new_dim = min(svs_over_cutoff, max_bond_rank)
     Σ_trunc = sqrt.(λ[1:new_dim])
-    U_trunc = U_r[:, sp[1:new_dim]]
-    return reshape(U_trunc, (out_size..., new_dim)), Σ_trunc
+    U_trunc = U_r[:, 1:new_dim]
+    Δ_trunc = sum(abs, λ[new_dim+1:end])
+    return reshape(U_trunc, (out_size..., new_dim)), Σ_trunc, Δ_trunc
 end
 
 @generated function eig_contraction(T::AbstractArray{T1,N}, (inds_open, inds_closed, inds_out)::Tuple{NTuple{2,Int}, NTuple{M,Int}, SVector{2,Int}}) where {T1,N,M}
