@@ -20,7 +20,7 @@ M_PEPS_floretpentagon = [
     ((4,1,2), (1,3,6))
 ] |> connection_matrix_from_connections
 
-M_PEPS_floretpentagon_petaltwirl =[
+M_PESS_floretpentagon_petaltwirl =[
     ((3,1,1), (4,1,3), (5,1,1), (6,1,3), (1,2,3)),
     ((6,1,1), (7,1,3), (8,1,3), (1,2,2), (2,2,2)),
     ((4,1,1), (6,1,2), (7,1,2), (9,1,3), (1,3,6)),
