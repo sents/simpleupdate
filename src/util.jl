@@ -116,7 +116,7 @@ function tile_structurematrix_with_origin(m, tile_pattern)
         end
         push!(parts, m_struct)
     end
-    reduce(hcat, parts)
+    reduce(hcat, unique(parts))
 end
 
 function tile_structurematrix(m, tile_pattern)
@@ -135,7 +135,7 @@ function tile_structurematrix(m, tile_pattern)
         end
         push!(parts, m_struct)
     end
-    reduce(hcat, parts)
+    reduce(hcat, unique(parts))
 end
 
 fld_ind(i, l) = fld((i - 1) , l) + 1
