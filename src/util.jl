@@ -98,18 +98,19 @@ function tile_structurematrix_with_origin(m, tile_pattern)
     D = ndims(tile_pattern) # number of tile directions
     n = Int(size(m)[1]/(2^D)) # number of sites in unit cell
     nS = size(m)[2] # Number of Simplices connected to primitive unit cell
-    parts = Matrix{Tuple{Int,Int}}[]
+    parts = Matrix{Tuple{Int,CartesianIndex{D}}}[]
+    cinds = CartesianIndices(Tuple(2 for _ in 1:D))
     for ci in CartesianIndices(tile_pattern)
         cells_inds = mod_ind.(cartesian_positive_adjacents(ci), Ref(size(tile_pattern)))
         tocells = tile_pattern[cells_inds]
 
-        m_struct = fill((0,0), (N*n, nS))
+        m_struct = fill((0,zero(CartesianIndex{D})), (N*n, nS))
         for (fromcell, tocell) in enumerate(tocells)
             for (row_to, row_from) in zip(((tocell-1)*n+1):tocell*n, ((fromcell-1)*n+1):fromcell*n)
                 for col in 1:nS
                     celli = fld_ind(row_from, n)
                     if m[row_from, col] != 0
-                        m_struct[row_to, col] = (m[row_from, col], celli)
+                        m_struct[row_to, col] = (m[row_from, col], cinds[celli])
                     end
                 end
             end
