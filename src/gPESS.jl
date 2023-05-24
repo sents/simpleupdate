@@ -83,10 +83,11 @@ struct PESSUnitCell{T1,T2}
 end
 
 """
-    PESSModel{T1, T2}
+    PESSModel{T1, T2, N}
 Describes a `PESSUnitCell` together with observables that can be
 calculated on the UnitCell. To model different kind of interactions
 it contains a list `sitetypes` that maps the sites to an integer.
+N is the number of tile directions.
 
 # Fields
 - `unitcell :: PESSUnitCell{T1, T2}`: The PESSUnitCell containing sites and simplices
@@ -94,29 +95,49 @@ it contains a list `sitetypes` that maps the sites to an integer.
 an integer to specify its `type`. Defaults to ones if all interactions are equal.
 - `observables :: Dict{Symbol, Vector{Operator{T1}}}`: A dict containing additional
 observables in or model. Always contains atleast :hamiltonian.
-- `m_connect :: Array{Int}`: The connection matrix describing how a primitive unit cell
+- `m_connect :: Array{Int, 2}`: The connection matrix describing how a primitive unit cell
 connects to positively adjacent unit cells
 - `tile_pattern :: Array{Int}`: The tile pattern with which the connection matrix is tiled
+- `interactions :: Vector{Tuple{Tuple{Int,Int}, NTuple{N, Int}}}`:
 """
-struct PESSModel{T1, T2}
+struct PESSModel{T1, T2, N}
     unitcell :: PESSUnitCell{T1, T2}
-    m_connect :: Array{Int}
-    tile_pattern :: Array{Int}
+    m_connect :: Array{Int, 2}
+    tile_pattern :: Array{Int, N}
+    interactions :: Vector{Tuple{NTuple{2,Int}, NTuple{N, Int}}}
     sitetypes :: Vector{Int}
     observables :: Dict{Symbol, Vector{Operator{T1}}}
     function PESSModel(
         unitcell::PESSUnitCell{T1, T2},
         m_connect::AbstractMatrix{Int},
-        tile_pattern::AbstractArray{Int},
+        tile_pattern::AbstractArray{Int, N},
+        interactions::Vector{Tuple{NTuple{2,Int}, NTuple{N, Int}}},
         sitetypes::Vector{Int} = [1 for _ in 1:length(unitcell.sites)],
-        observables = Dict()) where {T1, T2}
-        new{T1, T2}(
+        observables = Dict()) where {T1, T2, N}
+        new{T1, T2, N}(
             unitcell,
             m_connect,
             tile_pattern |> collect,
+            interactions,
             sitetypes,
             convert(Dict{Symbol, Vector{Operator{T1}}}, observables))
     end
+end
+
+function PESSModel(
+    unitcell::PESSUnitCell{T1, T2},
+    m_connect::AbstractMatrix{Int},
+    tile_pattern::AbstractArray{Int},
+    m_interactions::AbstractMatrix{Int},
+    sitetypes::Vector{Int} = [1 for _ in 1:length(unitcell.sites)],
+    observables = Dict()) where {T1, T2}
+    PESSModel(
+        unitcell,
+        m_connect,
+        tile_pattern |> collect,
+        interactions_from_tiling(m_interactions, tile_pattern),
+        sitetypes,
+        convert(Dict{Symbol, Vector{Operator{T1}}}, observables))
 end
 
 Base.show(io::IO, S::Simplex{M,N,T,A}) where {M,N,T,A} = print(io,
@@ -136,6 +157,7 @@ Base.show(io::IO, u::PESSUnitCell{T1,T2}) where {T1,T2} = print(io,
 Base.show(io::IO, m::PESSModel{T1,T2}) where {T1,T2} = print(io,
     "PESSModel{$T1,$T2}: ", length(m.unitcell.sites), " sites, ",
     "$(length(m.unitcell.simplices)) simplices\n",
+    "Number of interactions: ", length(m.interactions), "\n",
     "Number of sitetypes: ", length(m.sitetypes |> unique), "\n",
     "Defined observables: ",
     join(string.(keys(m.observables)), ", ")
@@ -587,36 +609,42 @@ function normalized_1site_ops(ops::Dict{Tuple{Int}, Operator{T1, 1, A}} where {T
     ]
 end
 
-function normalize_edge_ind(inds, n)
-    inds |> collect |> sort
-    o1 = inds[1][2]
-    Tuple([(siten, orig_cell - o1 + 1) for (siten, orig_cell) in inds])
+function edge_signature(((s1, o1), (s2, o2)))
+    sinds = ((s1, o1), (s2, o2)) |> collect |> sort
+    diff = o1-o2
+    Tuple([siten for (siten, origin) in sinds]), diff.I
 end
 
-function twosite_normalization_dict(m_connect, tile_pattern)
-    n = 2^ndims(tile_pattern)
+function interactions_from_tiling(m_connect, tile_pattern)
+    D = ndims(tile_pattern)
+    interactions = [
+        combinations([(i,c1[i][2])
+            for i in findall(c1 .!= Ref((0,zero(CartesianIndex{D}))))], 2)
+        for c1 in eachcol(tile_structurematrix_with_origin(m_connect, tile_pattern))
+    ] |> Iterators.flatten .|> edge_signature |> unique |> sort
+    return interactions
+end
+
+function twosite_normalization_dict(m_connect, tile_pattern,
+    interactions=interactions_from_tiling(m_connect, tile_pattern))
+    D = ndims(tile_pattern)
     m_origin = tile_structurematrix_with_origin(m_connect, tile_pattern)
     m_normal = tile_structurematrix(m_connect, tile_pattern)
-    pair_dict = Dict{NTuple{2, Tuple{Int,Int}}, Int}()
+    pair_dict = Dict{Tuple{NTuple{2,Int}, NTuple{D,Int}}, Int}()
     for (i_S, scol) in enumerate(eachcol(m_normal))
         sites = findall(scol .!= 0)
         for (i,s_i) in enumerate(sites)
             for s_j in sites[i+1:end]
-                inds = normalize_edge_ind(
+                inds = edge_signature(
                        ((s_i, m_origin[s_i, i_S][2]),
-                        (s_j, m_origin[s_j, i_S][2])),
-                    n)
+                        (s_j, m_origin[s_j, i_S][2])))
+
+                (inds in interactions) || continue
                 pair_dict[inds] = get(pair_dict, inds, 0) + 1
             end
         end
     end
-    normal_dict = Dict{Tuple{Int,Int}, Tuple{Int,Int}}()
-    for (k,v) in pair_dict
-        site_pair = k[1][1],k[2][1]
-        n_physical, n_nominal = get(normal_dict, site_pair, (0,0))
-        normal_dict[site_pair] = n_physical + 1, n_nominal + v
-    end
-    Dict(k=>v[1]/v[2] for (k,v) in normal_dict)
+    Dict(k=>1/v for (k,v) in pair_dict)
 end
 
 function register!(model::PESSModel, ops, name)
@@ -629,31 +657,39 @@ function register!(model::PESSModel, ops::Vector{Operator}, name)
 end
 
 function normalized_ops(ops::Dict{Tuple{Int, Int}, Operator{T,2,A}} where {T,A},
-    u::PESSUnitCell, m_connect, tile_pattern, sitetypes)
-    normalization_dict = twosite_normalization_dict(m_connect, tile_pattern)
+    u::PESSUnitCell, m_connect, tile_pattern, sitetypes, interactions)
+    normalization_dict = twosite_normalization_dict(m_connect, tile_pattern, interactions)
+    m_origin = tile_structurematrix_with_origin(m_connect, tile_pattern)
     [
     let simplex_sites = (simplex.sites..., simplex.vsites...)
         site_dims = vcat(
             [size(site.tensor)[end] for site in u.sites[simplex.sites |> collect]],
-                         size(simplex.tensor)[virtualsiteinds(simplex)] |> collect)
-       sum([
-            let
-                pair_id = (s_i, s_j) |> collect |> sort |> Tuple
-                op_id = (sitetypes[s_i], sitetypes[s_j]) |> collect |> sort |> Tuple
-                normalization_dict[pair_id] * nsite_op(ops[op_id],
-                                                       (i, j+i), site_dims)
+            size(simplex.tensor)[virtualsiteinds(simplex)] |> collect)
+        sum([
+        let
+            op_id = (sitetypes[s_i], sitetypes[s_j]) |> collect |> sort |> Tuple
+            normalization_dict[edge_id] * nsite_op(ops[op_id],
+                (i, j+i), site_dims)
+        end
+        for (i, s_i) in enumerate(simplex_sites)
+        for (j, (s_j, edge_id)) in enumerate(
+            map(simplex_sites[i+1:end]) do s_j
+                (s_j, edge_signature((
+                    (s_i, m_origin[s_i, i_S][2]),
+                    (s_j, m_origin[s_j, i_S][2])
+                )))
             end
-            for (i, s_i) in enumerate(simplex_sites)
-            for (j, s_j) in enumerate(simplex_sites[i+1:end])
+        )
+        if edge_id in interactions
         ])
-     end
-        for simplex in u.simplices
+    end
+    for (i_S, simplex) in enumerate(u.simplices)
     ]
 end
 
 normalized_ops(ops::Dict{Tuple{Int}, Operator{T, 1, A}} where {T,A}, model::PESSModel) = normalized_1site_ops(ops, model.unitcell, model.sitetypes)
 normalized_ops(ops::Dict{Tuple{Int,Int}, Operator{T,2,A}} where {T,A}, model::PESSModel) = normalized_ops(
-    ops, model.unitcell, model.m_connect, model.tile_pattern, model.sitetypes
+    ops, model.unitcell, model.m_connect, model.tile_pattern, model.sitetypes, model.interactions
 )
 normalized_ops(op::Operator{T,N,A}, model::PESSModel) where {T,N,A} = normalized_ops(
     Dict{NTuple{N, Int}, Operator{T,N,A}}(ntuple(_->1,Val(N))=>op), model
