@@ -7,26 +7,24 @@ export AbstractOperator, Operator, exp, +, *, ⊗, nsite_op
 using TensorOperations
 using LinearAlgebra
 
-abstract type AbstractOperator{T<:AbstractArray, N} end
+abstract type AbstractOperator{T<:AbstractArray,N} end
 
-struct Operator{T,N,A<:AbstractArray{T}} <: AbstractOperator{A, N}
-    tensor :: A
+struct Operator{T,N,A<:AbstractArray{T}} <: AbstractOperator{A,N}
+    tensor::A
     function Operator(tensor::A) where {T,N2,A<:AbstractArray{T,N2}}
         @assert iseven(N2) "The tensor dimension has to be even! In=Out"
-        new{T,Int(N2/2),A}(tensor)
+        new{T,Int(N2 / 2),A}(tensor)
     end
 end
 
-Base.show(io::IO, S::Operator{T,N,A}) where {T,N,A} = print(io,
-    "Operator{$T,$N,$A}: ", repr(size(S.tensor))
-)
+Base.show(io::IO, S::Operator{T,N,A}) where {T,N,A} =
+    print(io, "Operator{$T,$N,$A}: ", repr(size(S.tensor)))
 
-Base.ndims(::Type{<:AbstractOperator{<:Any, N}}) where N = N*2
+Base.ndims(::Type{<:AbstractOperator{<:Any,N}}) where {N} = N * 2
 
 function Base.exp(op::Operator{T,N}) where {T,N}
     s = size(op.tensor)
-    return reshape(exp(reshape(op.tensor, (prod(s[1:N]), prod(s[N+1:2N])))),
-                   s) |> Operator
+    return reshape(exp(reshape(op.tensor, (prod(s[1:N]), prod(s[N+1:2N])))), s) |> Operator
 end
 
 function Base.:+(a::Operator{T,N}, b::Operator{T,N}) where {T,N}
@@ -37,10 +35,11 @@ function Base.:*(a::Number, b::Operator)
     return Operator(a .* b.tensor)
 end
 
-if  Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"),"CUDA") ∈ keys(Base.loaded_modules)
+if Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA") ∈
+   keys(Base.loaded_modules)
     import LinearAlgebra: Hermitian
     import CUDA: CuArray
-    function Base.exp(A::Operator{T,N,Arr}) where {T,N, Arr<:CuArray}
+    function Base.exp(A::Operator{T,N,Arr}) where {T,N,Arr<:CuArray}
         s = size(A.tensor)
         F = eigen(Hermitian(reshape(A.tensor, (prod(s[1:N]), prod(s[N+1:2N])))))
         retmat = (F.vectors * Diagonal(exp.(F.values))) * F.vectors'
@@ -49,9 +48,10 @@ if  Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"),"CUDA") ∈ key
     end
 end
 
-⊗(a::AbstractArray{T1,2}, b::AbstractArray{T2,2}) where {T1,T2} = @tensor c[i, j, k, l] := a[i, k] * b[j, l]
+⊗(a::AbstractArray{T1,2}, b::AbstractArray{T2,2}) where {T1,T2} =
+    @tensor c[i, j, k, l] := a[i, k] * b[j, l]
 
-@generated function ⊗(xs::Vararg{AbstractArray, N}) where {N}
+@generated function ⊗(xs::Vararg{AbstractArray,N}) where {N}
     dims = Int.(ndims.(xs) ./ 2)
     half_inds = sum(dims)
     indsleft = Vector{Int}[]
@@ -63,13 +63,16 @@ end
         push!(indsright, iis .- half_inds)
         c += dim
     end
-    rightside = Expr(:call, :*,
-    (:(xs[$i][$((indsleft[i]...,indsright[i]...)...)]) for i in 1:length(dims))...)
+    rightside = Expr(
+        :call,
+        :*,
+        (:(xs[$i][$((indsleft[i]..., indsright[i]...)...)]) for i = 1:length(dims))...,
+    )
     return :(@tensor _[:] := $rightside)
 end
 ⊗(x::AbstractArray) = x
 
-⊗(os::Vararg{Operator, N}) where N = ⊗(getproperty.(os, :tensor))
+⊗(os::Vararg{Operator,N}) where {N} = ⊗(getproperty.(os, :tensor))
 
 function nsite_op(op::Operator{T}, inds, dims) where {T}
     N = length(dims)
@@ -77,13 +80,13 @@ function nsite_op(op::Operator{T}, inds, dims) where {T}
     op_right = op_left .+ N
     I_left = deleteat!(1:N |> collect, op_left)
     I_right = I_left .+ N
-    I_op = ⊗([UniformScaling{T}(one(T))(d) |> collect
-              for (i, d) in enumerate(dims)
-              if i ∉ inds]...)
-    Operator(
-        ncon((op.tensor, I_op),
-            ([op_left; op_right] .* -1, [I_left; I_right] .* -1))
+    I_op = ⊗(
+        [
+            UniformScaling{T}(one(T))(d) |> collect for
+            (i, d) in enumerate(dims) if i ∉ inds
+        ]...,
     )
+    Operator(ncon((op.tensor, I_op), ([op_left; op_right] .* -1, [I_left; I_right] .* -1)))
 end
 # Operator:2 ends here
 

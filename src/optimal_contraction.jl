@@ -22,32 +22,33 @@ end
 function optimal_contraction_inds(
     tensors::Vector{T},
     indices;
-    cache=nothing) where {T <: AbstractArray}
+    cache=nothing,
+) where {T<:AbstractArray}
     optimal_contraction_inds(size.(tensors), indices; cache=cache)
 end
 
 function optimal_contraction(
     tensors::Vector{T},
     indices;
-    cache=nothing) where {T <: AbstractArray}
+    cache=nothing,
+) where {T<:AbstractArray}
     optimal_contraction(size.(tensors), indices; cache=cache)
 end
 
 struct ContractionSignature{T,N}
-    tensorsizes::NTuple{N, NTuple{M, T} where M}
-    indices::NTuple{N, NTuple{M, Int} where M}
+    tensorsizes::NTuple{N,NTuple{M,T} where M}
+    indices::NTuple{N,NTuple{M,Int} where M}
 end
-ContractionSignature(tensorsizes,
-                    indices) = ContractionSignature(Tuple(Tuple.(tensorsizes)),
-                                                    Tuple(Tuple.(indices)))
+ContractionSignature(tensorsizes, indices) =
+    ContractionSignature(Tuple(Tuple.(tensorsizes)), Tuple(Tuple.(indices)))
 
 
-Base.:(==)(c1::ContractionSignature,
-           c2::ContractionSignature) = c1.indices==c2.indices && c1.tensorsizes==c2.tensorsizes
+Base.:(==)(c1::ContractionSignature, c2::ContractionSignature) =
+    c1.indices == c2.indices && c1.tensorsizes == c2.tensorsizes
 
 const OptimalContractionInfo = @NamedTuple begin
-    order :: Vector{Any}
-    cost :: Union{Int,Poly{:χ}}
+    order::Vector{Any}
+    cost::Union{Int,Poly{:χ}}
 end
 
 struct ContractionCache
@@ -56,13 +57,19 @@ struct ContractionCache
     autosave::Bool
 end
 
-function ContractionCache(;filename=nothing, autosave=false)
+function ContractionCache(; filename=nothing, autosave=false)
     @assert !autosave || !isnothing(filename)
-    ContractionCache(Dict{ContractionSignature,OptimalContractionInfo}(), filename, autosave)
+    ContractionCache(
+        Dict{ContractionSignature,OptimalContractionInfo}(),
+        filename,
+        autosave,
+    )
 end
 
-function optimal_contraction(contraction_signature::ContractionSignature,
-                             cache::Union{Nothing,ContractionCache})
+function optimal_contraction(
+    contraction_signature::ContractionSignature,
+    cache::Union{Nothing,ContractionCache},
+)
     if !isnothing(cache)
         return cached_optimal_contraction(contraction_signature, cache)
     else
@@ -72,11 +79,14 @@ end
 
 Base.sort(t1::NTuple) = t1 |> collect |> sort |> Tuple
 
-without(vs, ns) = [v for (i,v) in enumerate(vs) if i ∉ ns]
+without(vs, ns) = [v for (i, v) in enumerate(vs) if i ∉ ns]
 
 function make_ind_isless(start_inds)
-    function lt_inds(((ft1, fi1, s1), tot1, toi1),
-                     ((ft2, fi2, s2), tot2, toi2), visited=Int[])
+    function lt_inds(
+        ((ft1, fi1, s1), tot1, toi1),
+        ((ft2, fi2, s2), tot2, toi2),
+        visited=Int[],
+    )
         inds = without(start_inds, visited)
         s1 < s2 && return true
         next1 = get(inds, tot1, (0, (0, 0)))
@@ -84,10 +94,8 @@ function make_ind_isless(start_inds)
         (next2 == 0) && return false
         (next1 == 0) && (next2 != 0) && return true
 
-        (o1, on1) = only([(n[2][1], i)
-            for (i, n) in enumerate(next1)])
-        (o2, on2) = only([(n[2][1], i)
-            for (i, n) in enumerate(next2)])
+        (o1, on1) = only([(n[2][1], i) for (i, n) in enumerate(next1)])
+        (o2, on2) = only([(n[2][1], i) for (i, n) in enumerate(next2)])
 
         (o1, next1[2][1]) == (o2, next2[2][1]) && return false # equal
         is1 = sort(without(next1, (on1,)); lt=(a, b) -> lt_inds(a, b, [o1, o2]))
@@ -104,12 +112,12 @@ end
 
 ninds_conts(ninds) = [
     [
-        [(k, r) for (k, r) in enumerate(get(findall(oinds.==ind), 1, 0) for oinds in ninds)
-         if r != 0 && k != i
-        ] |> x -> get(x, 1, (0, 0))
-        for ind in inds
-    ]::Vector{Tuple{Int,Int}}
-    for (i, inds) in enumerate(ninds)
+        [
+            (k, r) for
+            (k, r) in enumerate(get(findall(oinds .== ind), 1, 0) for oinds in ninds) if
+            r != 0 && k != i
+        ] |> x -> get(x, 1, (0, 0)) for ind in inds
+    ]::Vector{Tuple{Int,Int}} for (i, inds) in enumerate(ninds)
 ]
 
 function cached_optimal_contraction(contraction_signature, cache::ContractionCache)
@@ -129,8 +137,8 @@ end
 function save!(cache::ContractionCache)
     @assert !isnothing(cache.filename) "ContractionCache needs a filename to save!"
     table = Dict(
-        (collect(collect.(k.tensorsizes)), collect(collect.(k.indices))) => v
-        for (k,v) in cache.table
+        (collect(collect.(k.tensorsizes)), collect(collect.(k.indices))) => v for
+        (k, v) in cache.table
     )
     save_object(cache.filename, (table, cache.filename, cache.autosave))
 end
@@ -138,19 +146,19 @@ end
 function ContractionCache(filename::String)
     (vtable, filename, autosave) = load_object(filename)
     table = Dict(
-        ContractionSignature(Tuple(Tuple.(k[1])), Tuple(Tuple.(k[2]))) => v
-        for (k,v) in vtable
+        ContractionSignature(Tuple(Tuple.(k[1])), Tuple(Tuple.(k[2]))) => v for
+        (k, v) in vtable
     )
     ContractionCache(table, filename, autosave)
 end
 
-function optimal_contraction(contraction_signature::ContractionSignature{T}) where T
+function optimal_contraction(contraction_signature::ContractionSignature{T}) where {T}
     tensorsizes = contraction_signature.tensorsizes
     indices = contraction_signature.indices
 
-    symbol_dict = Dict{Int, Symbol}()
+    symbol_dict = Dict{Int,Symbol}()
     cont_network = Vector{Symbol}[]
-    cost_dict = Dict{Symbol, T}()
+    cost_dict = Dict{Symbol,T}()
     for (tcosts, tinds) in zip(tensorsizes, indices)
         cont = Symbol[]
         for (cost, ind) in zip(tcosts, tinds)
@@ -165,18 +173,18 @@ function optimal_contraction(contraction_signature::ContractionSignature{T}) whe
         end
         push!(cont_network, cont)
     end
-    order,cost = optimaltree(cont_network, cost_dict)
-    return OptimalContractionInfo((order,cost))
+    order, cost = optimaltree(cont_network, cost_dict)
+    return OptimalContractionInfo((order, cost))
 end
 
 
-ordered_contraction_indices(inds, order) = ordered_contraction_indices(inds,
-                                                               contraction_indices_order(order, inds))
+ordered_contraction_indices(inds, order) =
+    ordered_contraction_indices(inds, contraction_indices_order(order, inds))
 
 function ordered_contraction_indices(inds, ind_map::Dict{Int,Int})
     minds = [[i for i in ind] for ind in inds]
-    for (i,tensor) in enumerate(inds)
-        for (j,ind) in enumerate(tensor)
+    for (i, tensor) in enumerate(inds)
+        for (j, ind) in enumerate(tensor)
             if haskey(ind_map, ind)
                 minds[i][j] = ind_map[ind]
             end
@@ -191,30 +199,28 @@ function contraction_indices_order(contraction_tree, indices)
 end
 
 function _contraction_indices_order(nodes, network, c=0, ind_map=Dict{Int,Int}())
-    a,b = nodes
+    a, b = nodes
     c, ind_map, involved_a = _contraction_indices_order(a, network, c, ind_map)
     c, ind_map, involved_b = _contraction_indices_order(b, network, c, ind_map)
-    for i in intersect(flatten([network[i] for i in involved_a]),
-                        flatten([network[i] for i in involved_b]))
+    for i in intersect(
+        flatten([network[i] for i in involved_a]),
+        flatten([network[i] for i in involved_b]),
+    )
         ind_map[i] = c += 1
     end
     return c, ind_map, [involved_a; involved_b]
 end
 
-_contraction_indices_order(node::Int, network, c, ind_map) =  c, ind_map, node
+_contraction_indices_order(node::Int, network, c, ind_map) = c, ind_map, node
 
-function testf(D,p)
-    a = rand(D,D,D,D,p)
-    b = rand(D,D,D,D,p)
-    c = rand(p,p,p,p)
-    op = rand(p,p,p,p)
+function testf(D, p)
+    a = rand(D, D, D, D, p)
+    b = rand(D, D, D, D, p)
+    c = rand(p, p, p, p)
+    op = rand(p, p, p, p)
     cache = ContractionCache()
-    inds = [[1,-1,-2,2],
-            [1,-3,-4,3],
-            [2,-5,-6,4],
-            [3,-7,-8,4]]
-    order, costs = optimal_contraction(size.([a,b,c,op]), inds,
-                                                          cache=cache)
+    inds = [[1, -1, -2, 2], [1, -3, -4, 3], [2, -5, -6, 4], [3, -7, -8, 4]]
+    order, costs = optimal_contraction(size.([a, b, c, op]), inds, cache=cache)
     return order, inds
 end
 # order, inds = testf(10,2)

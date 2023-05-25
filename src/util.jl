@@ -2,8 +2,10 @@
 module Util
 using ..OptimalContraction: ContractionCache, optimal_contraction_inds
 export ncon_indices,
-    moveind!, padded_inner_product,
-    Logger, record!,
+    moveind!,
+    padded_inner_product,
+    Logger,
+    record!,
     tile_structurematrix,
     tile_structurematrix_with_origin,
     make_ordered_structurematrix,
@@ -55,31 +57,32 @@ function _ncon_indices(sizes::Vector{<:Tuple}, contractions, open_inds)
 end
 
 function moveind!(a, from, to)
-    val = popat!(a,from)
+    val = popat!(a, from)
     insert!(a, to, val)
     a
 end
 
 struct Logger{LogStep}
-    logf
-    log :: Vector{LogStep}
+    logf::Any
+    log::Vector{LogStep}
 end
 
-Logger{LogStep}(;printit::Int=0) where LogStep = Logger{LogStep}(LogStep[]) do logv, step
-    if length(logv) % printit == 0
-        println(step)
+Logger{LogStep}(; printit::Int=0) where {LogStep} =
+    Logger{LogStep}(LogStep[]) do logv, step
+        if length(logv) % printit == 0
+            println(step)
+        end
     end
-end
 
-function record!(logger::Logger{LogStep}, step::LogStep) where LogStep
+function record!(logger::Logger{LogStep}, step::LogStep) where {LogStep}
     logger.logf(logger.log, step)
     push!(logger.log, step)
 end
 
-record!(logger::Logger{LogStep},
-    t::Tuple) where {LogStep<:NamedTuple} = record!(logger, LogStep(t))
+record!(logger::Logger{LogStep}, t::Tuple) where {LogStep<:NamedTuple} =
+    record!(logger, LogStep(t))
 
-pad(a::AbstractVector, n, f) = [a; fill(f, n-length(a))]
+pad(a::AbstractVector, n, f) = [a; fill(f, n - length(a))]
 
 """
     padded_inner_product(a, b)
@@ -87,7 +90,7 @@ Calculate the inner product of two vectors, that can be of different lengths.
 If one vector is longer the other is padded with zeros for the calculation of
 the inner product.
 """
-function padded_inner_product(a::V, b::V) where {T, V<:AbstractVector{T}}
+function padded_inner_product(a::V, b::V) where {T,V<:AbstractVector{T}}
     max_length = max(length(a), length(b))
     norm(pad(a, max_length, zero(T)) .- pad(b, max_length, zero(T)))
 end
@@ -96,18 +99,19 @@ end
 function tile_structurematrix_with_origin(m, tile_pattern)
     N = maximum(tile_pattern) # number of distinct unit cells
     D = ndims(tile_pattern) # number of tile directions
-    n = Int(size(m)[1]/(2^D)) # number of sites in unit cell
+    n = Int(size(m)[1] / (2^D)) # number of sites in unit cell
     nS = size(m)[2] # Number of Simplices connected to primitive unit cell
     parts = Matrix{Tuple{Int,CartesianIndex{D}}}[]
-    cinds = CartesianIndices(Tuple(2 for _ in 1:D))
+    cinds = CartesianIndices(Tuple(2 for _ = 1:D))
     for ci in CartesianIndices(tile_pattern)
         cells_inds = mod_ind.(cartesian_positive_adjacents(ci), Ref(size(tile_pattern)))
         tocells = tile_pattern[cells_inds]
 
-        m_struct = fill((0,zero(CartesianIndex{D})), (N*n, nS))
+        m_struct = fill((0, zero(CartesianIndex{D})), (N * n, nS))
         for (fromcell, tocell) in enumerate(tocells)
-            for (row_to, row_from) in zip(((tocell-1)*n+1):tocell*n, ((fromcell-1)*n+1):fromcell*n)
-                for col in 1:nS
+            for (row_to, row_from) in
+                zip(((tocell-1)*n+1):tocell*n, ((fromcell-1)*n+1):fromcell*n)
+                for col = 1:nS
                     celli = fld_ind(row_from, n)
                     if m[row_from, col] != 0
                         m_struct[row_to, col] = (m[row_from, col], cinds[celli])
@@ -123,14 +127,14 @@ end
 function tile_structurematrix(m, tile_pattern)
     N = maximum(tile_pattern) # number of distinct unit cells
     D = ndims(tile_pattern) # number of tile directions
-    n = Int(size(m)[1]/(2^D)) # number of sites in unit cell
+    n = Int(size(m)[1] / (2^D)) # number of sites in unit cell
     nS = size(m)[2] # Number of Simplices connected to primitive unit cell
     parts = Matrix{Int}[]
     for ci in CartesianIndices(tile_pattern)
         cells_inds = mod_ind.(cartesian_positive_adjacents(ci), Ref(size(tile_pattern)))
         tocells = tile_pattern[cells_inds]
 
-        m_struct = zeros(Int, (N*n, nS))
+        m_struct = zeros(Int, (N * n, nS))
         for (fromcell, tocell) in enumerate(tocells)
             m_struct[((tocell-1)*n+1):tocell*n, :] .+= m[((fromcell-1)*n+1):fromcell*n, :]
         end
@@ -139,21 +143,21 @@ function tile_structurematrix(m, tile_pattern)
     reduce(hcat, unique(parts))
 end
 
-fld_ind(i, l) = fld((i - 1) , l) + 1
+fld_ind(i, l) = fld((i - 1), l) + 1
 mod_ind(i, l) = (i - 1) % l + 1
 mod_ind(c::CartesianIndex, s) = CartesianIndex(mod_ind.(c.I, s))
 
-function cartesian_positive_adjacents(ci::CartesianIndex{D}) where D
-    offsets = CartesianIndices(ntuple(_->D,Val(D))) .- Ref(one(CartesianIndex{D}))
+function cartesian_positive_adjacents(ci::CartesianIndex{D}) where {D}
+    offsets = CartesianIndices(ntuple(_ -> D, Val(D))) .- Ref(one(CartesianIndex{D}))
     return offsets .+ Ref(ci)
 end
 
 
 function make_ordered_structurematrix(m0)
     m = copy(m0)
-    D=Dict{Int,Int}()
-    for (Si,Scol) in enumerate(eachcol(m))
-        for si in findall(x->x!=0, Scol)
+    D = Dict{Int,Int}()
+    for (Si, Scol) in enumerate(eachcol(m))
+        for si in findall(x -> x != 0, Scol)
             n = get(D, si, 0) + 1
             m[si, Si] = D[si] = n
         end
@@ -161,8 +165,9 @@ function make_ordered_structurematrix(m0)
     m
 end
 
-function connection_matrix_from_connections(connections,
-    n_cells = maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten)
+function connection_matrix_from_connections(
+    connections,
+    n_cells=maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten),
 )
     n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
     m = zeros(Int, (n_sites * n_cells, length(connections)))

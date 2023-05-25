@@ -2,9 +2,15 @@
 module gPEPS
 using ..Util
 using ..Operators
-export Site, Site2Operator, Bond, UnitCell,
-    simple_update, calc_1site_ev, calc_2site_ev,
-    normalized_1site_ops, unitcell_from_structurematrix,
+export Site,
+    Site2Operator,
+    Bond,
+    UnitCell,
+    simple_update,
+    calc_1site_ev,
+    calc_2site_ev,
+    normalized_1site_ops,
+    unitcell_from_structurematrix,
     PEPS_SU_LogStep
 # gPEPS:1 ends here
 
@@ -35,7 +41,7 @@ Dimensions:
 - 3: Site A out
 - 4: Site B out
 """
-const Site2Operator = Operator{T,2} where T
+const Site2Operator = Operator{T,2} where {T}
 
 """
     Bond(vector, A, B, Aind, Bind)
@@ -55,9 +61,8 @@ mutable struct Bond{T<:AbstractVector}
     Bind::Int
 end
 
-Base.show(io::IO, b::Bond{T}) where T = print(io,
-  "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))"
-)
+Base.show(io::IO, b::Bond{T}) where {T} =
+    print(io, "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
 """
     UnitCell(sites, bonds)
 
@@ -90,9 +95,13 @@ Calculate nessecary information about a simple update step for a certain `bond`.
 The information is returned as a NamedTuple. Some of the values contain value types to
     dispatch generated functions.
 """
-function static_simpleupdate_info(A::Site{S1}, B::Site{S2}, bond,
-                                  auxbonds_A,
-                                  auxbonds_B) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
+function static_simpleupdate_info(
+    A::Site{S1},
+    B::Site{S2},
+    bond,
+    auxbonds_A,
+    auxbonds_B,
+) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
 
     indsauxa = [[0]; [ind(b, bond.A) for b in auxbonds_A]]
     indsauxb = [[0]; [ind(b, bond.B) for b in auxbonds_B]]
@@ -111,10 +120,16 @@ function static_simpleupdate_info(A::Site{S1}, B::Site{S2}, bond,
     permA = moveind!(collect(1:N1), N1, bond.Aind)
     permB = moveind!(collect(1:N2), N2, bond.Bind)
 
-    return (auxA=Val(Tuple(indsauxa)), auxB=Val(Tuple(indsauxb)),
-            reA=Val(Tuple(indsrea)), reB=Val(Tuple(indsreb)),
-            qrA_perm=qrpermA, qrB_perm=qrpermB,
-            permA=permA, permB=permB)
+    return (
+        auxA=Val(Tuple(indsauxa)),
+        auxB=Val(Tuple(indsauxb)),
+        reA=Val(Tuple(indsrea)),
+        reB=Val(Tuple(indsreb)),
+        qrA_perm=qrpermA,
+        qrB_perm=qrpermB,
+        permA=permA,
+        permB=permB,
+    )
 end
 
 """
@@ -134,15 +149,21 @@ function simple_update_information(u::UnitCell, bondnum)
     return (info, auxbonds_A, auxbonds_B)
 end
 
-@generated function contract_bonds!(A::AbstractArray{T,N}, bond_tensors, ::Val{order}) where {T,N,order}
-    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n]))))
-             for n in 1:N if order[n] ≠ 0]
+@generated function contract_bonds!(
+    A::AbstractArray{T,N},
+    bond_tensors,
+    ::Val{order},
+) where {T,N,order}
+    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
     return :(A .= .*(A, $(bonds...)))
 end
 
-@generated function contract_bonds(A::AbstractArray{T,N}, bond_tensors, ::Val{order}) where {T,N,order}
-    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n]))))
-             for n in 1:N if order[n] ≠ 0]
+@generated function contract_bonds(
+    A::AbstractArray{T,N},
+    bond_tensors,
+    ::Val{order},
+) where {T,N,order}
+    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
     return :(.*(A, $(bonds...)))
 end
 
@@ -150,11 +171,9 @@ end
     A::AbstractArray{T,N},
     B::AbstractArray{T,M},
     op::AbstractArray{T,O},
-    order_A::Val{K}) where {T,N,M,O,K}
-    leftside = Expr(:call, :*,
-                    :(A[$(K.A...)]),
-                    :(B[$(K.B...)]),
-                    :(op[$(K.op...)]))
+    order_A::Val{K},
+) where {T,N,M,O,K}
+    leftside = Expr(:call, :*, :(A[$(K.A...)]), :(B[$(K.B...)]), :(op[$(K.op...)]))
     return :(@tensor S[:] := $leftside)
 end
 
@@ -163,15 +182,15 @@ end
 
 Simple update step for a single 2-site operator.
 """
-function simple_update_step!(A::Site{S1},
-                             B::Site{S2},
-                             op::Site2Operator,
-                             bond,
-                             contraction_info,
-                             max_bond_rank,
-                             sv_cutoff=0.0) where {T,N1,N2,
-                                                   S1<:AbstractArray{T,N1},
-                                                   S2<:AbstractArray{T,N2}}
+function simple_update_step!(
+    A::Site{S1},
+    B::Site{S2},
+    op::Site2Operator,
+    bond,
+    contraction_info,
+    max_bond_rank,
+    sv_cutoff=0.0,
+) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
     info, auxbonds_A, auxbonds_B = contraction_info
     auxtensors_A = [bond.vector for bond in auxbonds_A]
     auxtensors_B = [bond.vector for bond in auxbonds_B]
@@ -188,8 +207,7 @@ function simple_update_step!(A::Site{S1},
     sA_bond = Asizep[end-1:end]
     sA_rest = Asizep[1:end-2]
     sA_qr = min(prod(sA_bond), prod(sA_rest))
-    Ar = reshape(permutedims(A.tensor, info.qrA_perm),
-                 (prod(sA_rest), prod(sA_bond)))
+    Ar = reshape(permutedims(A.tensor, info.qrA_perm), (prod(sA_rest), prod(sA_bond)))
     Q_A, R_A = qr(Ar)
     R_Ar = reshape(R_A, (sA_qr, sA_bond...))
 
@@ -197,16 +215,14 @@ function simple_update_step!(A::Site{S1},
     sB_bond = Bsizep[end-1:end]
     sB_rest = Bsizep[1:end-2]
     sB_qr = min(prod(sB_bond), prod(sB_rest))
-    Br = reshape(permutedims(B.tensor, info.qrB_perm),
-                 (prod(sB_rest), prod(sB_bond)))
+    Br = reshape(permutedims(B.tensor, info.qrB_perm), (prod(sB_rest), prod(sB_bond)))
     Q_B, R_B = qr(Br)
     R_Br = reshape(R_B, (sA_qr, sB_bond...))
 
     # Optimal for D>=d²
-    @tensor S[:] := R_Ar[-1,2,1] * R_Br[-3,3,1] * op.tensor[2,3,-2,-4]
+    @tensor S[:] := R_Ar[-1, 2, 1] * R_Br[-3, 3, 1] * op.tensor[2, 3, -2, -4]
 
-    S_r = reshape(S,(sA_qr*p_A,
-                     sB_qr*p_B))
+    S_r = reshape(S, (sA_qr * p_A, sB_qr * p_B))
     F = svd!(S_r) # maybe Lancos TSVD?
     U, E, Vt = F.U, F.S, F.Vt
 
@@ -215,13 +231,11 @@ function simple_update_step!(A::Site{S1},
     new_bond_dim = min(svs_over_cutoff, max_bond_rank)
     new_bond = E[1:new_bond_dim]
 
-    R_A_new = reshape(U[:, 1:new_bond_dim],
-                      (sA_qr, p_A, new_bond_dim))
-    R_B_new = reshape(Vt[1:new_bond_dim, :],
-                      (new_bond_dim, sB_qr, p_B))
+    R_A_new = reshape(U[:, 1:new_bond_dim], (sA_qr, p_A, new_bond_dim))
+    R_B_new = reshape(Vt[1:new_bond_dim, :], (new_bond_dim, sB_qr, p_B))
 
-    @tensor A_new[l,p,b] := Matrix(Q_A)[l,x] * R_A_new[x, p, b]
-    @tensor B_new[l,p,b] := R_B_new[b, x, p] * Matrix(Q_B)[l,x]
+    @tensor A_new[l, p, b] := Matrix(Q_A)[l, x] * R_A_new[x, p, b]
+    @tensor B_new[l, p, b] := R_B_new[b, x, p] * Matrix(Q_B)[l, x]
 
     A_new_r = reshape(A_new, (Asizep[1:end-1]..., new_bond_dim))
     B_new_r = reshape(B_new, (Bsizep[1:end-1]..., new_bond_dim))
@@ -244,13 +258,15 @@ function simple_update_step!(A::Site{S1},
     return step_diff
 end
 
-function simple_update_step_old!(A::Site{S1},
-                                 B::Site{S2},
-                                 op::Site2Operator,
-                                 bond,
-                                 contraction_info,
-                                 max_bond_rank,
-                                 sv_cutoff=0.0) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
+function simple_update_step_old!(
+    A::Site{S1},
+    B::Site{S2},
+    op::Site2Operator,
+    bond,
+    contraction_info,
+    max_bond_rank,
+    sv_cutoff=0.0,
+) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
     info, auxbonds_A, auxbonds_B = contraction_info
     auxtensors_A = [bond.vector for bond in auxbonds_A]
     auxtensors_B = [bond.vector for bond in auxbonds_B]
@@ -263,8 +279,10 @@ function simple_update_step_old!(A::Site{S1},
 
     S = contract_2siteoperator(A.tensor, B.tensor, op.tensor, info.op)
 
-    S_r = reshape(S,(prod(size(A.tensor)[info.reshape_A]),
-                     prod(size(B.tensor)[info.reshape_B])))
+    S_r = reshape(
+        S,
+        (prod(size(A.tensor)[info.reshape_A]), prod(size(B.tensor)[info.reshape_B])),
+    )
     F = svd!(S_r) # maybe Lancos TSVD?
     U, E, Vt = F.U, F.S, F.Vt
 
@@ -273,10 +291,10 @@ function simple_update_step_old!(A::Site{S1},
     new_bond_dim = min(svs_over_cutoff, max_bond_rank)
     new_bond = E[1:new_bond_dim]
 
-    A_permuted = reshape(U[:, 1:new_bond_dim],
-                         (size(A.tensor)[info.reshape_A]..., new_bond_dim))
-    B_permuted = reshape(Vt[1:new_bond_dim, :],
-                         (new_bond_dim, size(B.tensor)[info.reshape_B]...))
+    A_permuted =
+        reshape(U[:, 1:new_bond_dim], (size(A.tensor)[info.reshape_A]..., new_bond_dim))
+    B_permuted =
+        reshape(Vt[1:new_bond_dim, :], (new_bond_dim, size(B.tensor)[info.reshape_B]...))
 
 
     if new_bond_dim == old_bond_dim
@@ -299,13 +317,13 @@ end
 
 function calc_1site_BraKet(u::UnitCell, sitenum)
     bonds = filter(bond -> involved(sitenum, bond), u.bonds)
-    A = contract_bonds(u.sites[sitenum].tensor,
-                       [bond.vector for bond in bonds],
-                       Val(Tuple(ind(bond, sitenum) for bond in bonds)))
+    A = contract_bonds(
+        u.sites[sitenum].tensor,
+        [bond.vector for bond in bonds],
+        Val(Tuple(ind(bond, sitenum) for bond in bonds)),
+    )
     N = ndims(A)
-    inds = ncon_indices(size.([A, A]),
-                        [((1, i), (2, i)) for i in 1:(N-1)],
-                        [(1, N), (2, N)])
+    inds = ncon_indices(size.([A, A]), [((1, i), (2, i)) for i = 1:(N-1)], [(1, N), (2, N)])
     AA = ncon([A, A], inds, [false, true])
     return AA
 end
@@ -331,16 +349,21 @@ function calc_2site_BraKet(u::UnitCell, alongbond)
     Bb = contract_bonds(B, [[bond.vector]; auxtensors_B], Val(binds))
     N = ndims(A) + ndims(B) - 1
 
-    cinds = ncon_indices(size.([A, B]), [((1, bond.Aind), (2, bond.Bind))],
-                         [(1, sort([ind(b, bond.A) for b in auxbonds_A])),
-                          (2, sort([ind(b, bond.B) for b in auxbonds_B])),
-                          (1, (ndims(A),)),
-                          (2, (ndims(B),))])
+    cinds = ncon_indices(
+        size.([A, B]),
+        [((1, bond.Aind), (2, bond.Bind))],
+        [
+            (1, sort([ind(b, bond.A) for b in auxbonds_A])),
+            (2, sort([ind(b, bond.B) for b in auxbonds_B])),
+            (1, (ndims(A),)),
+            (2, (ndims(B),)),
+        ],
+    )
     AB = ncon([Ab, Bb], cinds)
 
-    AB_contractions = [((1, i), (2, i)) for i in 1:(ndims(AB)-2)]
-    AB_open = [(1, (ndims(AB)-1,)), (1, (ndims(AB),)),
-               (2, (ndims(AB)-1,)), (2, (ndims(AB),))]
+    AB_contractions = [((1, i), (2, i)) for i = 1:(ndims(AB)-2)]
+    AB_open =
+        [(1, (ndims(AB) - 1,)), (1, (ndims(AB),)), (2, (ndims(AB) - 1,)), (2, (ndims(AB),))]
     ABABinds = ncon_indices(size.([AB, AB]), AB_contractions, AB_open)
     ABAB = ncon([AB, AB], ABABinds, [false, true])
     return ABAB
@@ -370,46 +393,63 @@ const PEPS_SU_LogStep = LogStep
 `simple_update(u::UnitCell, ops, max_bond_dim, convergence, maxit, logger)`
 Iterated simple update of unit cell with one operator per bond
 """
-function simple_update(u::UnitCell, ops;
-                       τ₀=1.0,
-                       max_bond_rank = 10,
-                       min_τ=1e-5,
-                       convergence=1e-8,
-                       sv_cutoff=1e-8,
-                       maxit=-1,
-                       logger=Logger{LogStep}([], 0))
-    bondinfo = [simple_update_information(u, i)
-                for (i, _) in enumerate(ops)]
+function simple_update(
+    u::UnitCell,
+    ops;
+    τ₀=1.0,
+    max_bond_rank=10,
+    min_τ=1e-5,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=Logger{LogStep}([], 0),
+)
+    bondinfo = [simple_update_information(u, i) for (i, _) in enumerate(ops)]
     it = 0
     τ = τ₀
     while τ >= min_τ
-        println("τ: ",τ)
-        simple_update(u, ops, bondinfo, τ;
-                      max_bond_rank=max_bond_rank,
-                      convergence=convergence,
-                      sv_cutoff=sv_cutoff,
-                      maxit=maxit-it,
-                      logger=logger)
+        println("τ: ", τ)
+        simple_update(
+            u,
+            ops,
+            bondinfo,
+            τ;
+            max_bond_rank=max_bond_rank,
+            convergence=convergence,
+            sv_cutoff=sv_cutoff,
+            maxit=maxit - it,
+            logger=logger,
+        )
         it += logger.log[end].it
         τ /= 10
     end
     return logger
 end
 
-function simple_update(u, ops, bondinfo, τ;
-                       max_bond_rank=10,
-                       convergence=1e-8,
-                       sv_cutoff=1e-8,
-                       maxit=-1,
-                       logger=nothing)
+function simple_update(
+    u,
+    ops,
+    bondinfo,
+    τ;
+    max_bond_rank=10,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=nothing,
+)
     eops = [exp(-τ * op) for op in ops]
-    for it in 1:maxit
+    for it = 1:maxit
         diff = 0.0
         for (op, info, bond) in zip(eops, bondinfo, u.bonds)
-            d = simple_update_step!(u.sites[bond.A],
-                                    u.sites[bond.B],
-                                    op, bond,
-                                    info, max_bond_rank, sv_cutoff)
+            d = simple_update_step!(
+                u.sites[bond.A],
+                u.sites[bond.B],
+                op,
+                bond,
+                info,
+                max_bond_rank,
+                sv_cutoff,
+            )
             diff += d
         end
         !isnothing(logger) && record!(logger, (diff, [b.vector for b in u.bonds]))
@@ -421,42 +461,35 @@ function simple_update(u, ops, bondinfo, τ;
 end
 
 function normalized_1site_ops(op, u::UnitCell)
-    [(op ⊗ I(size(u.sites[bond.B].tensor)[end])) / nbonds(u, bond.A) .+ (I(size(u.sites[bond.A].tensor)[end]) ⊗ op) / nbonds(u, bond.B)
-     for bond in u.bonds]
+    [
+        (op ⊗ I(size(u.sites[bond.B].tensor)[end])) / nbonds(u, bond.A) .+
+        (I(size(u.sites[bond.A].tensor)[end]) ⊗ op) / nbonds(u, bond.B) for bond in u.bonds
+    ]
 end
 
-function unitcell_from_structurematrix(M,
-                                       bonddims,
-                                       pdims=fill(2, size(M)[1]),
-                                       initf=rand)
+function unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
     bonds = Bond[]
     sitedims = [
         let bondinds = findall(siterow .!= 0)
-            [bonddims[bondinds][sortperm(
-                     siterow[bondinds])]; [pdims[i]]]
-        end
-        for (i,siterow) in enumerate(eachrow(M))
+            [
+                bonddims[bondinds][sortperm(siterow[bondinds])]
+                [pdims[i]]
             ]
+        end for (i, siterow) in enumerate(eachrow(M))
+    ]
     sites = [Site(initf(ComplexF64, sdims...)) for sdims in sitedims]
     bonds = [
-    let bdim = bonddims[i]
-        sitenums = findall(bondcol .!= 0)
-        siteinds = bondcol[sitenums]
-        Bond(initf(bdim), sitenums..., siteinds...)
-    end
-        for (i, bondcol) in enumerate(eachcol(M))
+        let bdim = bonddims[i]
+            sitenums = findall(bondcol .!= 0)
+            siteinds = bondcol[sitenums]
+            Bond(initf(bdim), sitenums..., siteinds...)
+        end for (i, bondcol) in enumerate(eachcol(M))
     ]
 
     return UnitCell(sites, bonds)
 end
-unitcell_from_structurematrix(M,
-                              bonddims,
-                              pdim::Int,
-                              initf=rand) = unitcell_from_structurematrix(
-                                  M,
-                                  bonddims,
-                                  fill(pdim, size(M)[1]),
-                                  initf)
+unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
+    unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
 # gPEPS:2 ends here
 
 # [[file:../../notes.org::*gPEPS][gPEPS:3]]
