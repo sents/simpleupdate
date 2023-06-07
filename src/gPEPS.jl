@@ -258,63 +258,6 @@ function simple_update_step!(
     return step_diff
 end
 
-function simple_update_step_old!(
-    A::Site{S1},
-    B::Site{S2},
-    op::Site2Operator,
-    bond,
-    contraction_info,
-    max_bond_rank,
-    sv_cutoff=0.0,
-) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
-    info, auxbonds_A, auxbonds_B = contraction_info
-    auxtensors_A = [bond.vector for bond in auxbonds_A]
-    auxtensors_B = [bond.vector for bond in auxbonds_B]
-
-    old_bond_dim = length(bond.vector)
-
-    # Only one of them is going to contract bond.vector
-    contract_bonds!(A.tensor, [[bond.vector]; auxtensors_A], info.auxA)
-    contract_bonds!(B.tensor, [[bond.vector]; auxtensors_B], info.auxB)
-
-    S = contract_2siteoperator(A.tensor, B.tensor, op.tensor, info.op)
-
-    S_r = reshape(
-        S,
-        (prod(size(A.tensor)[info.reshape_A]), prod(size(B.tensor)[info.reshape_B])),
-    )
-    F = svd!(S_r) # maybe Lancos TSVD?
-    U, E, Vt = F.U, F.S, F.Vt
-
-    E ./= norm(E)
-    svs_over_cutoff = count(>=(sv_cutoff), E)
-    new_bond_dim = min(svs_over_cutoff, max_bond_rank)
-    new_bond = E[1:new_bond_dim]
-
-    A_permuted =
-        reshape(U[:, 1:new_bond_dim], (size(A.tensor)[info.reshape_A]..., new_bond_dim))
-    B_permuted =
-        reshape(Vt[1:new_bond_dim, :], (new_bond_dim, size(B.tensor)[info.reshape_B]...))
-
-
-    if new_bond_dim == old_bond_dim
-        permutedims!(A.tensor, A_permuted, info.permA)
-        permutedims!(B.tensor, B_permuted, info.permB)
-    else
-        A.tensor = permutedims(A_permuted, info.permA)
-        B.tensor = permutedims(B_permuted, info.permB)
-    end
-
-    step_diff = padded_inner_product(bond.vector, new_bond)
-    bond.vector = new_bond
-
-    # Re-Emit bond tensors
-    contract_bonds!(A.tensor, [[bond.vector]; [inv.(t) for t in auxtensors_A]], info.reA)
-    contract_bonds!(B.tensor, [[bond.vector]; [inv.(t) for t in auxtensors_B]], info.reB)
-
-    return step_diff
-end
-
 function calc_1site_BraKet(u::UnitCell, sitenum)
     bonds = filter(bond -> involved(sitenum, bond), u.bonds)
     A = contract_bonds(
