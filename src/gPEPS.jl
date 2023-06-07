@@ -1,4 +1,4 @@
-# [[file:../../notes.org::*gPEPS][gPEPS:1]]
+# [[file:../SimpleUpdate.org::*gPEPS][gPEPS:1]]
 module gPEPS
 using ..Util
 using ..Operators
@@ -14,7 +14,7 @@ export Site,
     PEPS_SU_LogStep
 # gPEPS:1 ends here
 
-# [[file:../../notes.org::*gPEPS][gPEPS:2]]
+# [[file:../SimpleUpdate.org::*gPEPS][gPEPS:2]]
 using LinearAlgebra
 using TensorOperations
 
@@ -435,6 +435,6 @@ unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
     unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
 # gPEPS:2 ends here
 
-# [[file:../../notes.org::*gPEPS][gPEPS:3]]
+# [[file:../SimpleUpdate.org::*gPEPS][gPEPS:3]]
 end
 # gPEPS:3 ends here

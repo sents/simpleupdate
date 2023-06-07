@@ -1,9 +1,9 @@
-# [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:1]]
+# [[file:../SimpleUpdate.org::*Optimal Contraction][Optimal Contraction:1]]
 module OptimalContraction
 export ContractionCache, optimal_contraction_inds, optimal_contraction, save!, ==
 # Optimal Contraction:1 ends here
 
-# [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:2]]
+# [[file:../SimpleUpdate.org::*Optimal Contraction][Optimal Contraction:2]]
 import JLD2: save_object, load_object
 import TensorOperations: Poly, Power, optimaltree
 import .Iterators: flatten
@@ -226,6 +226,6 @@ end
 # order, inds = testf(10,2)
 # Optimal Contraction:2 ends here
 
-# [[file:../../notes.org::*Optimal Contraction][Optimal Contraction:3]]
+# [[file:../SimpleUpdate.org::*Optimal Contraction][Optimal Contraction:3]]
 end
 # Optimal Contraction:3 ends here

@@ -1,4 +1,4 @@
-# [[file:../../notes.org::*gPESS][gPESS:1]]
+# [[file:../SimpleUpdate.org::*gPESS][gPESS:1]]
 module gPESS
 using ..OptimalContraction
 using ..Operators
@@ -20,7 +20,7 @@ export Simplex,
     per_site_energy
 # gPESS:1 ends here
 
-# [[file:../../notes.org::*gPESS][gPESS:2]]
+# [[file:../SimpleUpdate.org::*gPESS][gPESS:2]]
 using LinearAlgebra: full!
 using Base: ReverseOrdering
 using StaticArrays
@@ -827,10 +827,8 @@ function per_site_energy(model::PESSModel, cache)
     ]
     real(sum(simplex_energies) / nsites)
 end
-
-
 # gPESS:2 ends here
 
-# [[file:../../notes.org::*gPESS][gPESS:3]]
+# [[file:../SimpleUpdate.org::*gPESS][gPESS:3]]
 end
 # gPESS:3 ends here

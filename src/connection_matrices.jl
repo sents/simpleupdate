@@ -1,7 +1,10 @@
+# [[file:../SimpleUpdate.org::*Connection Matrices][Connection Matrices:1]]
 module ConnectionMatrices
 using ..Util: connection_matrix_from_connections
 export connection_matrix_dict
+# Connection Matrices:1 ends here
 
+# [[file:../SimpleUpdate.org::*Connection Matrices][Connection Matrices:2]]
 M_PEPS_floretpentagon =
     [
         ((1, 1, 2), (2, 1, 3)),
@@ -47,4 +50,8 @@ connection_matrix_dict = Dict(
     "PESS_square" => M_PESS_square,
     "PESS_kagome_3" => M_PESS_kagome_3,
 )
+# Connection Matrices:2 ends here
+
+# [[file:../SimpleUpdate.org::*Connection Matrices][Connection Matrices:3]]
 end
+# Connection Matrices:3 ends here

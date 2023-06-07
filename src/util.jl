@@ -1,4 +1,4 @@
-# [[file:../../notes.org::*Util][Util:1]]
+# [[file:../SimpleUpdate.org::*Util][Util:1]]
 module Util
 using ..OptimalContraction: ContractionCache, optimal_contraction_inds
 export ncon_indices,
@@ -12,7 +12,7 @@ export ncon_indices,
     connection_matrix_from_connections
 # Util:1 ends here
 
-# [[file:../../notes.org::*Util][Util:2]]
+# [[file:../SimpleUpdate.org::*Util][Util:2]]
 using LinearAlgebra: norm
 """
     ncon_indices(sizes, contractions, open_inds; optimize=false)
@@ -180,6 +180,6 @@ function connection_matrix_from_connections(
 end
 # Util:2 ends here
 
-# [[file:../../notes.org::*Util][Util:3]]
+# [[file:../SimpleUpdate.org::*Util][Util:3]]
 end
 # Util:3 ends here

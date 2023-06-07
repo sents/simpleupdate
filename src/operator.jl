@@ -1,9 +1,9 @@
-# [[file:../../notes.org::*Operator][Operator:1]]
+# [[file:../SimpleUpdate.org::*Operator][Operator:1]]
 module Operators
 export AbstractOperator, Operator, exp, +, *, ⊗, nsite_op
 # Operator:1 ends here
 
-# [[file:../../notes.org::*Operator][Operator:2]]
+# [[file:../SimpleUpdate.org::*Operator][Operator:2]]
 using TensorOperations
 using LinearAlgebra
 
@@ -90,6 +90,6 @@ function nsite_op(op::Operator{T}, inds, dims) where {T}
 end
 # Operator:2 ends here
 
-# [[file:../../notes.org::*Operator][Operator:3]]
+# [[file:../SimpleUpdate.org::*Operator][Operator:3]]
 end
 # Operator:3 ends here

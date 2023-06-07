@@ -1,4 +1,4 @@
-# [[file:../../notes.org::*Test Ising simple update][Test Ising simple update:1]]
+# [[file:../SimpleUpdate.org::*Test Ising simple update][Test Ising simple update:1]]
 module Examples
 using ..OptimalContraction
 using ..Operators
@@ -7,7 +7,7 @@ using ..gPEPS
 using ..ConnectionMatrices
 # Test Ising simple update:1 ends here
 
-# [[file:../../notes.org::*Test Ising simple update][Test Ising simple update:2]]
+# [[file:../SimpleUpdate.org::*Test Ising simple update][Test Ising simple update:2]]
 import LinearAlgebra: I
 
 σ_z = [1 0; 0 -1.0]
@@ -90,7 +90,7 @@ end
 # R = test_ising(-1.0)
 # Test Ising simple update:2 ends here
 
-# [[file:../../notes.org::*Test Heisenberg with simple update][Test Heisenberg with simple update:1]]
+# [[file:../SimpleUpdate.org::*Test Heisenberg with simple update][Test Heisenberg with simple update:1]]
 function test_heisenberg(J=1.0, μ=0.0)
     u = unitcell_from_structurematrix(M_squareab, [2, 3, 4, 5], rand)
 
@@ -125,7 +125,7 @@ function test_heisenberg(J=1.0, μ=0.0)
 end
 # Test Heisenberg with simple update:1 ends here
 
-# [[file:../../notes.org::*Try simple update on Floret Pentagon][Try simple update on Floret Pentagon:1]]
+# [[file:../SimpleUpdate.org::*Try simple update on Floret Pentagon][Try simple update on Floret Pentagon:1]]
 M_floretpent_6petal = [
     1 2 3 0 0 0 0 0 0 0 0 0 0 0 0
     3 0 0 1 2 0 0 0 0 0 0 0 0 0 0
@@ -162,6 +162,6 @@ function heisenberg_simple_update(M, J=-1.0, μ=0.0; bonddims=fill(5, size(M)[2]
 end
 # Try simple update on Floret Pentagon:1 ends here
 
-# [[file:../../notes.org::*Try simple update on Floret Pentagon][Try simple update on Floret Pentagon:2]]
+# [[file:../SimpleUpdate.org::*Try simple update on Floret Pentagon][Try simple update on Floret Pentagon:2]]
 end
 # Try simple update on Floret Pentagon:2 ends here

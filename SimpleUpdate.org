@@ -1,0 +1,2021 @@
+#+PROPERTY: header-args:jupyter-julia :session /jpy:localhost#8888:manotes :kernel julia-1.9 :async yes :eval never-export :tangle SimpleUpdate/src/misc.jl :comments link
+* Code
+** Optimal Contraction
+This module uses optimaltree from TensorOperations to
+calculate optimal contraction ncon indices and cache them.
+#+BEGIN_SRC jupyter-julia :tangle src/optimal_contraction.jl :eval no :hidden
+module OptimalContraction
+export ContractionCache, optimal_contraction_inds, optimal_contraction, save!, ==
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/optimal_contraction.jl
+import JLD2: save_object, load_object
+import TensorOperations: Poly, Power, optimaltree
+import .Iterators: flatten
+
+function optimal_contraction_inds(sizes, indices; cache=nothing)
+    order, costs = optimal_contraction(sizes, indices; cache=cache)
+    return ordered_contraction_indices(indices, order)
+end
+
+function optimal_contraction(sizes, indices; cache=nothing) #:: OptimalContractionInfo
+    contraction_signature = ContractionSignature(collect.(sizes), indices)
+    return optimal_contraction(contraction_signature, cache)
+end
+
+
+function optimal_contraction_inds(
+    tensors::Vector{T},
+    indices;
+    cache=nothing,
+) where {T<:AbstractArray}
+    optimal_contraction_inds(size.(tensors), indices; cache=cache)
+end
+
+function optimal_contraction(
+    tensors::Vector{T},
+    indices;
+    cache=nothing,
+) where {T<:AbstractArray}
+    optimal_contraction(size.(tensors), indices; cache=cache)
+end
+
+struct ContractionSignature{T,N}
+    tensorsizes::NTuple{N,NTuple{M,T} where M}
+    indices::NTuple{N,NTuple{M,Int} where M}
+end
+ContractionSignature(tensorsizes, indices) =
+    ContractionSignature(Tuple(Tuple.(tensorsizes)), Tuple(Tuple.(indices)))
+
+
+Base.:(==)(c1::ContractionSignature, c2::ContractionSignature) =
+    c1.indices == c2.indices && c1.tensorsizes == c2.tensorsizes
+
+const OptimalContractionInfo = @NamedTuple begin
+    order::Vector{Any}
+    cost::Union{Int,Poly{:χ}}
+end
+
+struct ContractionCache
+    table::Dict{ContractionSignature,OptimalContractionInfo}
+    filename::Union{Nothing,String}
+    autosave::Bool
+end
+
+function ContractionCache(; filename=nothing, autosave=false)
+    @assert !autosave || !isnothing(filename)
+    ContractionCache(
+        Dict{ContractionSignature,OptimalContractionInfo}(),
+        filename,
+        autosave,
+    )
+end
+
+function optimal_contraction(
+    contraction_signature::ContractionSignature,
+    cache::Union{Nothing,ContractionCache},
+)
+    if !isnothing(cache)
+        return cached_optimal_contraction(contraction_signature, cache)
+    else
+        return optimal_contraction(contraction_signature)
+    end
+end
+
+Base.sort(t1::NTuple) = t1 |> collect |> sort |> Tuple
+
+without(vs, ns) = [v for (i, v) in enumerate(vs) if i ∉ ns]
+
+function make_ind_isless(start_inds)
+    function lt_inds(
+        ((ft1, fi1, s1), tot1, toi1),
+        ((ft2, fi2, s2), tot2, toi2),
+        visited=Int[],
+    )
+        inds = without(start_inds, visited)
+        s1 < s2 && return true
+        next1 = get(inds, tot1, (0, (0, 0)))
+        next2 = get(inds, tot2, (0, (0, 0)))
+        (next2 == 0) && return false
+        (next1 == 0) && (next2 != 0) && return true
+
+        (o1, on1) = only([(n[2][1], i) for (i, n) in enumerate(next1)])
+        (o2, on2) = only([(n[2][1], i) for (i, n) in enumerate(next2)])
+
+        (o1, next1[2][1]) == (o2, next2[2][1]) && return false # equal
+        is1 = sort(without(next1, (on1,)); lt=(a, b) -> lt_inds(a, b, [o1, o2]))
+        is2 = sort(without(next2, (on2,)); lt=(a, b) -> lt_inds(a, b, [o1, o2]))
+
+
+
+    end
+end
+
+function normalize_contraction_signature(sizes, inds)
+    cont = zip.(sizes, ninds_conts(inds)) .|> collect
+end
+
+ninds_conts(ninds) = [
+    [
+        [
+            (k, r) for
+            (k, r) in enumerate(get(findall(oinds .== ind), 1, 0) for oinds in ninds) if
+            r != 0 && k != i
+        ] |> x -> get(x, 1, (0, 0)) for ind in inds
+    ]::Vector{Tuple{Int,Int}} for (i, inds) in enumerate(ninds)
+]
+
+function cached_optimal_contraction(contraction_signature, cache::ContractionCache)
+    if haskey(cache.table, contraction_signature)
+        return cache.table[contraction_signature]
+    end
+    optimal_contraction_info = optimal_contraction(contraction_signature)
+    register!(cache, contraction_signature, optimal_contraction_info)
+    return optimal_contraction_info
+end
+
+function register!(cache::ContractionCache, contraction_signature, optimal_contraction_info)
+    cache.table[contraction_signature] = optimal_contraction_info
+    cache.autosave && save!(cache)
+end
+
+function save!(cache::ContractionCache)
+    @assert !isnothing(cache.filename) "ContractionCache needs a filename to save!"
+    table = Dict(
+        (collect(collect.(k.tensorsizes)), collect(collect.(k.indices))) => v for
+        (k, v) in cache.table
+    )
+    save_object(cache.filename, (table, cache.filename, cache.autosave))
+end
+
+function ContractionCache(filename::String)
+    (vtable, filename, autosave) = load_object(filename)
+    table = Dict(
+        ContractionSignature(Tuple(Tuple.(k[1])), Tuple(Tuple.(k[2]))) => v for
+        (k, v) in vtable
+    )
+    ContractionCache(table, filename, autosave)
+end
+
+function optimal_contraction(contraction_signature::ContractionSignature{T}) where {T}
+    tensorsizes = contraction_signature.tensorsizes
+    indices = contraction_signature.indices
+
+    symbol_dict = Dict{Int,Symbol}()
+    cont_network = Vector{Symbol}[]
+    cost_dict = Dict{Symbol,T}()
+    for (tcosts, tinds) in zip(tensorsizes, indices)
+        cont = Symbol[]
+        for (cost, ind) in zip(tcosts, tinds)
+            if haskey(symbol_dict, ind)
+                sym = symbol_dict[ind]
+            else
+                sym = gensym()
+                symbol_dict[ind] = sym
+                cost_dict[sym] = cost
+            end
+            push!(cont, sym)
+        end
+        push!(cont_network, cont)
+    end
+    order, cost = optimaltree(cont_network, cost_dict)
+    return OptimalContractionInfo((order, cost))
+end
+
+
+ordered_contraction_indices(inds, order) =
+    ordered_contraction_indices(inds, contraction_indices_order(order, inds))
+
+function ordered_contraction_indices(inds, ind_map::Dict{Int,Int})
+    minds = [[i for i in ind] for ind in inds]
+    for (i, tensor) in enumerate(inds)
+        for (j, ind) in enumerate(tensor)
+            if haskey(ind_map, ind)
+                minds[i][j] = ind_map[ind]
+            end
+        end
+    end
+    return Tuple(Tuple.(minds))
+end
+
+function contraction_indices_order(contraction_tree, indices)
+    c, ind_map, involved = _contraction_indices_order(contraction_tree, indices)
+    return ind_map
+end
+
+function _contraction_indices_order(nodes, network, c=0, ind_map=Dict{Int,Int}())
+    a, b = nodes
+    c, ind_map, involved_a = _contraction_indices_order(a, network, c, ind_map)
+    c, ind_map, involved_b = _contraction_indices_order(b, network, c, ind_map)
+    for i in intersect(
+        flatten([network[i] for i in involved_a]),
+        flatten([network[i] for i in involved_b]),
+    )
+        ind_map[i] = c += 1
+    end
+    return c, ind_map, [involved_a; involved_b]
+end
+
+_contraction_indices_order(node::Int, network, c, ind_map) = c, ind_map, node
+
+function testf(D, p)
+    a = rand(D, D, D, D, p)
+    b = rand(D, D, D, D, p)
+    c = rand(p, p, p, p)
+    op = rand(p, p, p, p)
+    cache = ContractionCache()
+    inds = [[1, -1, -2, 2], [1, -3, -4, 3], [2, -5, -6, 4], [3, -7, -8, 4]]
+    order, costs = optimal_contraction(size.([a, b, c, op]), inds, cache=cache)
+    return order, inds
+end
+# order, inds = testf(10,2)
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/optimal_contraction.jl :eval no :hidden
+end
+#+END_SRC
+** Util
+#+BEGIN_SRC jupyter-julia :tangle src/util.jl :eval no :hidden
+module Util
+using ..OptimalContraction: ContractionCache, optimal_contraction_inds
+export ncon_indices,
+    moveind!,
+    padded_inner_product,
+    Logger,
+    record!,
+    tile_structurematrix,
+    tile_structurematrix_with_origin,
+    make_ordered_structurematrix,
+    connection_matrix_from_connections
+#+END_SRC
+#+BEGIN_SRC jupyter-julia :tangle src/util.jl :eval no :hidden
+using LinearAlgebra: norm
+"""
+    ncon_indices(sizes, contractions, open_inds; optimize=false)
+Calculate the ncon style indices for a series of indice contractions and open indices
+
+sizes: A Vector of tuples representing the sizes of the contracted tensors
+
+contractions: A Vector of `((tensor_num_A, ind_A), (tensor_num_B, ind_B))`
+
+open_inds: A Vector deciding the order of open indices. Written as e.g.
+
+`[(tensor_num_A, (1,2,3)), (tensor_num_B, (1,2,3)), (tensor_num_A, (4,)), (tensor_num_B, (4,))]`
+"""
+function ncon_indices(sizes, contractions, open_inds, optimize=false)
+    inds = _ncon_indices(sizes, contractions, open_inds)
+    if optimize
+        return optimal_contraction_inds(sizes, inds)
+    else
+        return inds
+    end
+end
+
+function ncon_indices(sizes, contractions, open_inds, cache::ContractionCache)
+    inds = _ncon_indices(sizes, contractions, open_inds)
+    return optimal_contraction_inds(sizes, inds; cache=cache)
+end
+
+function _ncon_indices(sizes::Vector{<:Tuple}, contractions, open_inds)
+    dims = length.(sizes)
+    inds = [zeros(Int, dim) for dim in dims]
+    closed = 0
+    for ((A, Aind), (B, Bind)) in contractions
+        inds[A][Aind] = inds[B][Bind] = closed += 1
+    end
+    open = 0
+    for (A, oinds) in open_inds
+        for i in oinds
+            inds[A][i] = open -= 1
+        end
+    end
+    return Tuple(inds)
+end
+
+function moveind!(a, from, to)
+    val = popat!(a, from)
+    insert!(a, to, val)
+    a
+end
+
+struct Logger{LogStep}
+    logf::Any
+    log::Vector{LogStep}
+end
+
+Logger{LogStep}(; printit::Int=0) where {LogStep} =
+    Logger{LogStep}(LogStep[]) do logv, step
+        if length(logv) % printit == 0
+            println(step)
+        end
+    end
+
+function record!(logger::Logger{LogStep}, step::LogStep) where {LogStep}
+    logger.logf(logger.log, step)
+    push!(logger.log, step)
+end
+
+record!(logger::Logger{LogStep}, t::Tuple) where {LogStep<:NamedTuple} =
+    record!(logger, LogStep(t))
+
+pad(a::AbstractVector, n, f) = [a; fill(f, n - length(a))]
+
+"""
+    padded_inner_product(a, b)
+Calculate the inner product of two vectors, that can be of different lengths.
+If one vector is longer the other is padded with zeros for the calculation of
+the inner product.
+"""
+function padded_inner_product(a::V, b::V) where {T,V<:AbstractVector{T}}
+    max_length = max(length(a), length(b))
+    norm(pad(a, max_length, zero(T)) .- pad(b, max_length, zero(T)))
+end
+
+
+function tile_structurematrix_with_origin(m, tile_pattern)
+    N = maximum(tile_pattern) # number of distinct unit cells
+    D = ndims(tile_pattern) # number of tile directions
+    n = Int(size(m)[1] / (2^D)) # number of sites in unit cell
+    nS = size(m)[2] # Number of Simplices connected to primitive unit cell
+    parts = Matrix{Tuple{Int,CartesianIndex{D}}}[]
+    cinds = CartesianIndices(Tuple(2 for _ = 1:D))
+    for ci in CartesianIndices(tile_pattern)
+        cells_inds = mod_ind.(cartesian_positive_adjacents(ci), Ref(size(tile_pattern)))
+        tocells = tile_pattern[cells_inds]
+
+        m_struct = fill((0, zero(CartesianIndex{D})), (N * n, nS))
+        for (fromcell, tocell) in enumerate(tocells)
+            for (row_to, row_from) in
+                zip(((tocell-1)*n+1):tocell*n, ((fromcell-1)*n+1):fromcell*n)
+                for col = 1:nS
+                    celli = fld_ind(row_from, n)
+                    if m[row_from, col] != 0
+                        m_struct[row_to, col] = (m[row_from, col], cinds[celli])
+                    end
+                end
+            end
+        end
+        push!(parts, m_struct)
+    end
+    reduce(hcat, unique(parts))
+end
+
+function tile_structurematrix(m, tile_pattern)
+    N = maximum(tile_pattern) # number of distinct unit cells
+    D = ndims(tile_pattern) # number of tile directions
+    n = Int(size(m)[1] / (2^D)) # number of sites in unit cell
+    nS = size(m)[2] # Number of Simplices connected to primitive unit cell
+    parts = Matrix{Int}[]
+    for ci in CartesianIndices(tile_pattern)
+        cells_inds = mod_ind.(cartesian_positive_adjacents(ci), Ref(size(tile_pattern)))
+        tocells = tile_pattern[cells_inds]
+
+        m_struct = zeros(Int, (N * n, nS))
+        for (fromcell, tocell) in enumerate(tocells)
+            m_struct[((tocell-1)*n+1):tocell*n, :] .+= m[((fromcell-1)*n+1):fromcell*n, :]
+        end
+        push!(parts, m_struct)
+    end
+    reduce(hcat, unique(parts))
+end
+
+fld_ind(i, l) = fld((i - 1), l) + 1
+mod_ind(i, l) = (i - 1) % l + 1
+mod_ind(c::CartesianIndex, s) = CartesianIndex(mod_ind.(c.I, s))
+
+function cartesian_positive_adjacents(ci::CartesianIndex{D}) where {D}
+    offsets = CartesianIndices(ntuple(_ -> D, Val(D))) .- Ref(one(CartesianIndex{D}))
+    return offsets .+ Ref(ci)
+end
+
+
+function make_ordered_structurematrix(m0)
+    m = copy(m0)
+    D = Dict{Int,Int}()
+    for (Si, Scol) in enumerate(eachcol(m))
+        for si in findall(x -> x != 0, Scol)
+            n = get(D, si, 0) + 1
+            m[si, Si] = D[si] = n
+        end
+    end
+    m
+end
+
+function connection_matrix_from_connections(
+    connections,
+    n_cells=maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten),
+)
+    n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
+    m = zeros(Int, (n_sites * n_cells, length(connections)))
+    for (i, sites) in enumerate(connections)
+        for site in sites
+            m[(site[2]-1)*n_sites+site[1], i] = site[3]
+        end
+    end
+    m
+end
+#+END_SRC
+#+BEGIN_SRC jupyter-julia :tangle src/util.jl :eval no :hidden
+end
+#+END_SRC
+** Operator
+#+BEGIN_SRC jupyter-julia :tangle src/operator.jl :eval no :hidden
+module Operators
+export AbstractOperator, Operator, exp, +, *, ⊗, nsite_op
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/operator.jl
+using TensorOperations
+using LinearAlgebra
+
+abstract type AbstractOperator{T<:AbstractArray,N} end
+
+struct Operator{T,N,A<:AbstractArray{T}} <: AbstractOperator{A,N}
+    tensor::A
+    function Operator(tensor::A) where {T,N2,A<:AbstractArray{T,N2}}
+        @assert iseven(N2) "The tensor dimension has to be even! In=Out"
+        new{T,Int(N2 / 2),A}(tensor)
+    end
+end
+
+Base.show(io::IO, S::Operator{T,N,A}) where {T,N,A} =
+    print(io, "Operator{$T,$N,$A}: ", repr(size(S.tensor)))
+
+Base.ndims(::Type{<:AbstractOperator{<:Any,N}}) where {N} = N * 2
+
+function Base.exp(op::Operator{T,N}) where {T,N}
+    s = size(op.tensor)
+    return reshape(exp(reshape(op.tensor, (prod(s[1:N]), prod(s[N+1:2N])))), s) |> Operator
+end
+
+function Base.:+(a::Operator{T,N}, b::Operator{T,N}) where {T,N}
+    return Operator(a.tensor .+ b.tensor)
+end
+
+function Base.:*(a::Number, b::Operator)
+    return Operator(a .* b.tensor)
+end
+
+if Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA") ∈
+   keys(Base.loaded_modules)
+    import LinearAlgebra: Hermitian
+    import CUDA: CuArray
+    function Base.exp(A::Operator{T,N,Arr}) where {T,N,Arr<:CuArray}
+        s = size(A.tensor)
+        F = eigen(Hermitian(reshape(A.tensor, (prod(s[1:N]), prod(s[N+1:2N])))))
+        retmat = (F.vectors * Diagonal(exp.(F.values))) * F.vectors'
+        retmat -= Diagonal(imag(diag(retmat)) * im)
+        return Operator(reshape(retmat, s))
+    end
+end
+
+⊗(a::AbstractArray{T1,2}, b::AbstractArray{T2,2}) where {T1,T2} =
+    @tensor c[i, j, k, l] := a[i, k] * b[j, l]
+
+@generated function ⊗(xs::Vararg{AbstractArray,N}) where {N}
+    dims = Int.(ndims.(xs) ./ 2)
+    half_inds = sum(dims)
+    indsleft = Vector{Int}[]
+    indsright = Vector{Int}[]
+    c = 1
+    for dim in dims
+        iis = -1 * (c:c+(dim-1))
+        push!(indsleft, iis)
+        push!(indsright, iis .- half_inds)
+        c += dim
+    end
+    rightside = Expr(
+        :call,
+        :*,
+        (:(xs[$i][$((indsleft[i]..., indsright[i]...)...)]) for i = 1:length(dims))...,
+    )
+    return :(@tensor _[:] := $rightside)
+end
+⊗(x::AbstractArray) = x
+
+⊗(os::Vararg{Operator,N}) where {N} = ⊗(getproperty.(os, :tensor))
+
+function nsite_op(op::Operator{T}, inds, dims) where {T}
+    N = length(dims)
+    op_left = inds |> collect
+    op_right = op_left .+ N
+    I_left = deleteat!(1:N |> collect, op_left)
+    I_right = I_left .+ N
+    I_op = ⊗(
+        [
+            UniformScaling{T}(one(T))(d) |> collect for
+            (i, d) in enumerate(dims) if i ∉ inds
+        ]...,
+    )
+    Operator(ncon((op.tensor, I_op), ([op_left; op_right] .* -1, [I_left; I_right] .* -1)))
+end
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/operator.jl :eval no :hidden
+end
+#+END_SRC
+** gPEPS
+#+BEGIN_SRC jupyter-julia :tangle src/gPEPS.jl :eval no :hidden
+module gPEPS
+using ..Util
+using ..Operators
+export Site,
+    Site2Operator,
+    Bond,
+    UnitCell,
+    simple_update,
+    calc_1site_ev,
+    calc_2site_ev,
+    normalized_1site_ops,
+    unitcell_from_structurematrix,
+    PEPS_SU_LogStep
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/gPEPS.jl
+using LinearAlgebra
+using TensorOperations
+
+"""
+    Site{T <: AbstractArray}
+Represents a site in a PEPS state.
+
+Holds the site `tensor` a `N` dimensional array. The first `N-1` dimensions describe
+virtual (or bond) dimensions. The `N`th dimension is the physical dimension.
+"""
+mutable struct Site{T<:AbstractArray}
+    tensor::T
+end
+
+
+"""
+    Site2Operator{T<:AbstractArray{t,4} where t}
+
+Describes operator acting on the physical indices of 2 sites.
+
+Dimensions:
+- 1: Site A in
+- 2: Site B in
+- 3: Site A out
+- 4: Site B out
+"""
+const Site2Operator = Operator{T,2} where {T}
+
+"""
+    Bond(vector, A, B, Aind, Bind)
+
+Holds information about bonds between two PEPS sites in the context of a `UnitCell`.
+`tensor` is the simple update bond tensor.  `A` is the index of the first `Site` of the
+Bond as ordered in the `UnitCell`, `B` is the second. `Aind` and `Bind` are the indices
+of Site A or B that the Bond binds to.
+
+`tensor` has two indices. The first binding to `Aind` of `A` and the second to `Bind` of
+`B`.  """
+mutable struct Bond{T<:AbstractVector}
+    vector::T
+    A::Int
+    B::Int
+    Aind::Int
+    Bind::Int
+end
+
+Base.show(io::IO, b::Bond{T}) where {T} =
+    print(io, "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
+"""
+    UnitCell(sites, bonds)
+
+A unit cell of a iPEPS tensor network.
+sites is a `Vector` of `Site`s describing the sites in the `UnitCell`. The order of
+sites in the Vector is important. `bonds` is a Vector of `Bond`s describing all the
+bonds necessary to cover the lattice.
+"""
+struct UnitCell
+    sites::Vector{Site}
+    bonds::Vector{Bond}
+end
+
+
+involved(sitenum, bond) = bond.A == sitenum || bond.B == sitenum
+function auxbonds(bonds, sitenum, bondnum)
+    return bonds[involved.(sitenum, bonds).&&eachindex(bonds).!=bondnum]
+end
+
+nbonds(u::UnitCell, sitenum) = count(involved.(sitenum, u.bonds))
+
+"""    ind(b::Bond, i)
+Helper function to get the Bond indice of a bond b.
+i is the id of a Site.
+"""
+ind(b::Bond, i) = i == b.A ? b.Aind : b.Bind
+"""
+    static_simpleupdate_info(A, B, bond, auxbonds_A, auxbonds_B; cache=nothing)
+Calculate nessecary information about a simple update step for a certain `bond`.
+The information is returned as a NamedTuple. Some of the values contain value types to
+    dispatch generated functions.
+"""
+function static_simpleupdate_info(
+    A::Site{S1},
+    B::Site{S2},
+    bond,
+    auxbonds_A,
+    auxbonds_B,
+) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
+
+    indsauxa = [[0]; [ind(b, bond.A) for b in auxbonds_A]]
+    indsauxb = [[0]; [ind(b, bond.B) for b in auxbonds_B]]
+    indsrea = copy(indsauxa)
+    indsreb = copy(indsauxb)
+
+    if prod(size(B.tensor)) > prod(size(A.tensor))
+        indsauxb[1] = bond.Bind
+    else
+        indsauxa[1] = bond.Aind
+    end
+
+    qrpermA = moveind!(collect(1:N1), bond.Aind, N1)
+    qrpermB = moveind!(collect(1:N2), bond.Bind, N2)
+
+    permA = moveind!(collect(1:N1), N1, bond.Aind)
+    permB = moveind!(collect(1:N2), N2, bond.Bind)
+
+    return (
+        auxA=Val(Tuple(indsauxa)),
+        auxB=Val(Tuple(indsauxb)),
+        reA=Val(Tuple(indsrea)),
+        reB=Val(Tuple(indsreb)),
+        qrA_perm=qrpermA,
+        qrB_perm=qrpermB,
+        permA=permA,
+        permB=permB,
+    )
+end
+
+"""
+    simple_update_information(u::UnitCell, bondnum)
+
+Calculate auxillary bonds and contraction information for a simple update step on bond
+of `bondnumber`"""
+function simple_update_information(u::UnitCell, bondnum)
+    bond = u.bonds[bondnum]
+    iA = bond.A
+    iB = bond.B
+    A = u.sites[iA]
+    B = u.sites[iB]
+    auxbonds_A = auxbonds(u.bonds, iA, bondnum)
+    auxbonds_B = auxbonds(u.bonds, iB, bondnum)
+    info = static_simpleupdate_info(A, B, bond, auxbonds_A, auxbonds_B)
+    return (info, auxbonds_A, auxbonds_B)
+end
+
+@generated function contract_bonds!(
+    A::AbstractArray{T,N},
+    bond_tensors,
+    ::Val{order},
+) where {T,N,order}
+    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
+    return :(A .= .*(A, $(bonds...)))
+end
+
+@generated function contract_bonds(
+    A::AbstractArray{T,N},
+    bond_tensors,
+    ::Val{order},
+) where {T,N,order}
+    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
+    return :(.*(A, $(bonds...)))
+end
+
+@generated function contract_2siteoperator(
+    A::AbstractArray{T,N},
+    B::AbstractArray{T,M},
+    op::AbstractArray{T,O},
+    order_A::Val{K},
+) where {T,N,M,O,K}
+    leftside = Expr(:call, :*, :(A[$(K.A...)]), :(B[$(K.B...)]), :(op[$(K.op...)]))
+    return :(@tensor S[:] := $leftside)
+end
+
+"""
+`simple_update_step!(A, B, op, bond, info, max_bond_rank, sv_cutoff)`
+
+Simple update step for a single 2-site operator.
+"""
+function simple_update_step!(
+    A::Site{S1},
+    B::Site{S2},
+    op::Site2Operator,
+    bond,
+    contraction_info,
+    max_bond_rank,
+    sv_cutoff=0.0,
+) where {T,N1,N2,S1<:AbstractArray{T,N1},S2<:AbstractArray{T,N2}}
+    info, auxbonds_A, auxbonds_B = contraction_info
+    auxtensors_A = [bond.vector for bond in auxbonds_A]
+    auxtensors_B = [bond.vector for bond in auxbonds_B]
+    p_A = size(A.tensor)[end]
+    p_B = size(B.tensor)[end]
+
+    old_bond_dim = length(bond.vector)
+
+    # Only one of them is going to contract bond.vector
+    contract_bonds!(A.tensor, [[bond.vector]; auxtensors_A], info.auxA)
+    contract_bonds!(B.tensor, [[bond.vector]; auxtensors_B], info.auxB)
+
+    Asizep = size(A.tensor)[info.qrA_perm]
+    sA_bond = Asizep[end-1:end]
+    sA_rest = Asizep[1:end-2]
+    sA_qr = min(prod(sA_bond), prod(sA_rest))
+    Ar = reshape(permutedims(A.tensor, info.qrA_perm), (prod(sA_rest), prod(sA_bond)))
+    Q_A, R_A = qr(Ar)
+    R_Ar = reshape(R_A, (sA_qr, sA_bond...))
+
+    Bsizep = size(B.tensor)[info.qrB_perm]
+    sB_bond = Bsizep[end-1:end]
+    sB_rest = Bsizep[1:end-2]
+    sB_qr = min(prod(sB_bond), prod(sB_rest))
+    Br = reshape(permutedims(B.tensor, info.qrB_perm), (prod(sB_rest), prod(sB_bond)))
+    Q_B, R_B = qr(Br)
+    R_Br = reshape(R_B, (sA_qr, sB_bond...))
+
+    # Optimal for D>=d²
+    @tensor S[:] := R_Ar[-1, 2, 1] * R_Br[-3, 3, 1] * op.tensor[2, 3, -2, -4]
+
+    S_r = reshape(S, (sA_qr * p_A, sB_qr * p_B))
+    F = svd!(S_r) # maybe Lancos TSVD?
+    U, E, Vt = F.U, F.S, F.Vt
+
+    E ./= norm(E)
+    svs_over_cutoff = count(>=(sv_cutoff), E)
+    new_bond_dim = min(svs_over_cutoff, max_bond_rank)
+    new_bond = E[1:new_bond_dim]
+
+    R_A_new = reshape(U[:, 1:new_bond_dim], (sA_qr, p_A, new_bond_dim))
+    R_B_new = reshape(Vt[1:new_bond_dim, :], (new_bond_dim, sB_qr, p_B))
+
+    @tensor A_new[l, p, b] := Matrix(Q_A)[l, x] * R_A_new[x, p, b]
+    @tensor B_new[l, p, b] := R_B_new[b, x, p] * Matrix(Q_B)[l, x]
+
+    A_new_r = reshape(A_new, (Asizep[1:end-1]..., new_bond_dim))
+    B_new_r = reshape(B_new, (Bsizep[1:end-1]..., new_bond_dim))
+
+    if new_bond_dim == old_bond_dim
+        permutedims!(A.tensor, A_new_r, info.permA)
+        permutedims!(B.tensor, B_new_r, info.permB)
+    else
+        A.tensor = permutedims(A_new_r, info.permA)
+        B.tensor = permutedims(B_new_r, info.permB)
+    end
+
+    step_diff = padded_inner_product(bond.vector, new_bond)
+    bond.vector = new_bond
+
+    # Re-Emit bond tensors
+    contract_bonds!(A.tensor, [[bond.vector]; [inv.(t) for t in auxtensors_A]], info.reA)
+    contract_bonds!(B.tensor, [[bond.vector]; [inv.(t) for t in auxtensors_B]], info.reB)
+
+    return step_diff
+end
+
+function calc_1site_BraKet(u::UnitCell, sitenum)
+    bonds = filter(bond -> involved(sitenum, bond), u.bonds)
+    A = contract_bonds(
+        u.sites[sitenum].tensor,
+        [bond.vector for bond in bonds],
+        Val(Tuple(ind(bond, sitenum) for bond in bonds)),
+    )
+    N = ndims(A)
+    inds = ncon_indices(size.([A, A]), [((1, i), (2, i)) for i = 1:(N-1)], [(1, N), (2, N)])
+    AA = ncon([A, A], inds, [false, true])
+    return AA
+end
+
+function calc_2site_BraKet(u::UnitCell, alongbond)
+    bond = u.bonds[alongbond]
+    A = u.sites[bond.A].tensor
+    B = u.sites[bond.B].tensor
+    auxbonds_A = auxbonds(u.bonds, bond.A, alongbond)
+    auxbonds_B = auxbonds(u.bonds, bond.B, alongbond)
+    auxtensors_A = [bond.vector for bond in auxbonds_A]
+    auxtensors_B = [bond.vector for bond in auxbonds_B]
+
+    if prod(size(A)) <= prod(size(B))
+        ainds = (bond.Aind, (ind(b, bond.A) for b in auxbonds_A)...)
+        binds = (0, (ind(b, bond.B) for b in auxbonds_B)...)
+    else
+        binds = (bond.Bind, (ind(b, bond.B) for b in auxbonds_B)...)
+        ainds = (0, (ind(b, bond.A) for b in auxbonds_A)...)
+    end
+
+    Ab = contract_bonds(A, [[bond.vector]; auxtensors_A], Val(ainds))
+    Bb = contract_bonds(B, [[bond.vector]; auxtensors_B], Val(binds))
+    N = ndims(A) + ndims(B) - 1
+
+    cinds = ncon_indices(
+        size.([A, B]),
+        [((1, bond.Aind), (2, bond.Bind))],
+        [
+            (1, sort([ind(b, bond.A) for b in auxbonds_A])),
+            (2, sort([ind(b, bond.B) for b in auxbonds_B])),
+            (1, (ndims(A),)),
+            (2, (ndims(B),)),
+        ],
+    )
+    AB = ncon([Ab, Bb], cinds)
+
+    AB_contractions = [((1, i), (2, i)) for i = 1:(ndims(AB)-2)]
+    AB_open =
+        [(1, (ndims(AB) - 1,)), (1, (ndims(AB),)), (2, (ndims(AB) - 1,)), (2, (ndims(AB),))]
+    ABABinds = ncon_indices(size.([AB, AB]), AB_contractions, AB_open)
+    ABAB = ncon([AB, AB], ABABinds, [false, true])
+    return ABAB
+end
+
+function calc_1site_ev(u::UnitCell, op, sitenum)
+    AA = calc_1site_BraKet(u, sitenum)
+    @tensor ev[] := AA[1, 2] * op[1, 2]
+    @tensor AA_norm[] := AA[1, 1]
+    return ev ./ AA_norm
+end
+
+function calc_2site_ev(u::UnitCell, op, alongbond)
+    ABAB = calc_2site_BraKet(u, alongbond)
+    @tensor ev[] := ABAB[1, 2, 3, 4] * op.tensor[1, 2, 3, 4]
+    @tensor ABAB_norm[] := ABAB[1, 2, 1, 2]
+    return ev ./ ABAB_norm
+end
+
+const LogStep = @NamedTuple begin
+    diff::Float64
+    svs::Vector{Vector{Float64}}
+end
+const PEPS_SU_LogStep = LogStep
+
+"""
+`simple_update(u::UnitCell, ops, max_bond_dim, convergence, maxit, logger)`
+Iterated simple update of unit cell with one operator per bond
+"""
+function simple_update(
+    u::UnitCell,
+    ops;
+    τ₀=1.0,
+    max_bond_rank=10,
+    min_τ=1e-5,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=Logger{LogStep}([], 0),
+)
+    bondinfo = [simple_update_information(u, i) for (i, _) in enumerate(ops)]
+    it = 0
+    τ = τ₀
+    while τ >= min_τ
+        println("τ: ", τ)
+        simple_update(
+            u,
+            ops,
+            bondinfo,
+            τ;
+            max_bond_rank=max_bond_rank,
+            convergence=convergence,
+            sv_cutoff=sv_cutoff,
+            maxit=maxit - it,
+            logger=logger,
+        )
+        it += logger.log[end].it
+        τ /= 10
+    end
+    return logger
+end
+
+function simple_update(
+    u,
+    ops,
+    bondinfo,
+    τ;
+    max_bond_rank=10,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=nothing,
+)
+    eops = [exp(-τ * op) for op in ops]
+    for it = 1:maxit
+        diff = 0.0
+        for (op, info, bond) in zip(eops, bondinfo, u.bonds)
+            d = simple_update_step!(
+                u.sites[bond.A],
+                u.sites[bond.B],
+                op,
+                bond,
+                info,
+                max_bond_rank,
+                sv_cutoff,
+            )
+            diff += d
+        end
+        !isnothing(logger) && record!(logger, (diff, [b.vector for b in u.bonds]))
+        if diff < convergence
+            return logger
+        end
+    end
+    return logger
+end
+
+function normalized_1site_ops(op, u::UnitCell)
+    [
+        (op ⊗ I(size(u.sites[bond.B].tensor)[end])) / nbonds(u, bond.A) .+
+        (I(size(u.sites[bond.A].tensor)[end]) ⊗ op) / nbonds(u, bond.B) for bond in u.bonds
+    ]
+end
+
+function unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
+    bonds = Bond[]
+    sitedims = [
+        let bondinds = findall(siterow .!= 0)
+            [
+                bonddims[bondinds][sortperm(siterow[bondinds])]
+                [pdims[i]]
+            ]
+        end for (i, siterow) in enumerate(eachrow(M))
+    ]
+    sites = [Site(initf(ComplexF64, sdims...)) for sdims in sitedims]
+    bonds = [
+        let bdim = bonddims[i]
+            sitenums = findall(bondcol .!= 0)
+            siteinds = bondcol[sitenums]
+            Bond(initf(bdim), sitenums..., siteinds...)
+        end for (i, bondcol) in enumerate(eachcol(M))
+    ]
+
+    return UnitCell(sites, bonds)
+end
+unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
+    unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/gPEPS.jl :eval no :hidden
+end
+#+END_SRC
+** gPESS
+#+BEGIN_SRC jupyter-julia :tangle src/gPESS.jl :eval no :hidden
+module gPESS
+using ..OptimalContraction
+using ..Operators
+using ..Util
+export Simplex,
+    PESSSite,
+    PESSUnitCell,
+    PESSModel,
+    nsites,
+    nvirt,
+    virtualsiteinds,
+    nsimps,
+    psize,
+    show,
+    normalized_ops,
+    pess_unitcell_from_ordered_structurematrix,
+    register!,
+    static_pess_su_info,
+    per_site_energy
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/gPESS.jl
+using LinearAlgebra: full!
+using Base: ReverseOrdering
+using StaticArrays
+using LinearAlgebra
+using TensorOperations
+import Combinatorics: combinations
+
+
+"""
+    Simplex{M,N,T,A<:AbstractArray{T}}
+A PESS simplex connecting multiple sites.
+
+For practical purposes all sites that only connect to one
+simplex are absorbed into the simplex.
+
+The first `N` dimensions of `tensor` are connected to `siteind[i]` of `site[i]`
+The next `M` dimensions are meant for the absorbed, 'virtual' sites.
+
+# Fields
+- `tensor :: A`: The simplex tensor
+- `sites :: NTuple{N,Int}`: A tuple of the indices of the connected sites in the site list
+- `siteinds :: NTuple{N,Int}`: A tuple of the indices of the site tensor the simplex is connected to
+"""
+mutable struct Simplex{M,N,T,A<:AbstractArray{T}}
+    tensor::A
+    sites::NTuple{N,Int}
+    vsites::NTuple{M,Int}
+    siteinds::NTuple{N,Int}
+    function Simplex{M}(
+        tensor::A,
+        sites::NTuple{N,Int},
+        vsites::NTuple{M,Int},
+        siteinds::NTuple{N,Int},
+    ) where {N,M,T,A<:AbstractArray{T}}
+        @assert ndims(tensor) == N + M """
+            tensor with dim $(ndims(tensor)) should to have $(N) simplex and $(M)
+            virtual dimensions!
+            """
+        new{M,N,T,A}(tensor, sites, vsites, siteinds)
+    end
+end
+
+"""
+    PESSSite{N, T1, T2, M<:AbstractArray{T1}}
+A site tensor in a PESS tensor network state.
+The first N Dimensions of `tensor` are connected to Simplices,
+the last Dimension represents the physical index.
+# Fields
+- `tensor :: M`: The tensor containing N dimensions connecting to simplices and one physical
+- `envVectors :: SizedArray{N,Vector{T2}}`: Vectors containing entanglement mean field weights in the direction of the connected simplices
+"""
+mutable struct PESSSite{N,T1,T2,M<:AbstractArray{T1}}
+    tensor::M
+    envVectors::SizedVector{N,Vector{T2},Vector{Vector{T2}}}
+    function PESSSite(
+        tensor::M,
+        envVectors::NTuple{N,Vector{T2}},
+    ) where {N,T1,T2,M<:AbstractArray{T1}}
+        @assert ndims(tensor) == N + 1 """
+            Dimension of `tensor` has to be N+1=$(N+1)!
+            """
+        new{N,T1,T2,M}(tensor, SizedVector{N,Vector{T2}}(envVectors))
+    end
+end
+
+"""
+    PESSUnitCell{T1,T2}
+A unitcell consisting of a Vector of sites and a vector of simplices
+"""
+struct PESSUnitCell{T1,T2}
+    sites::Vector{PESSSite{<:Any,T1,T2}}
+    simplices::Vector{Simplex{<:Any,<:Any,T1}}
+end
+
+"""
+    PESSModel{T1, T2, N}
+Describes a `PESSUnitCell` together with observables that can be
+calculated on the UnitCell. To model different kind of interactions
+it contains a list `sitetypes` that maps the sites to an integer.
+N is the number of tile directions.
+
+# Fields
+- `unitcell :: PESSUnitCell{T1, T2}`: The PESSUnitCell containing sites and simplices
+- `sitetypes :: Vector{Int}`: A list of length(unitcell.sites) sites, giving each site
+an integer to specify its `type`. Defaults to ones if all interactions are equal.
+- `observables :: Dict{Symbol, Vector{Operator{T1}}}`: A dict containing additional
+observables in or model. Always contains atleast :hamiltonian.
+- `m_connect :: Array{Int, 2}`: The connection matrix describing how a primitive unit cell
+connects to positively adjacent unit cells
+- `tile_pattern :: Array{Int}`: The tile pattern with which the connection matrix is tiled
+- `interactions :: Vector{Tuple{Tuple{Int,Int}, NTuple{N, Int}}}`:
+"""
+struct PESSModel{T1,T2,N}
+    unitcell::PESSUnitCell{T1,T2}
+    m_connect::Array{Int,2}
+    tile_pattern::Array{Int,N}
+    interactions::Vector{Tuple{NTuple{2,Int},NTuple{N,Int}}}
+    sitetypes::Vector{Int}
+    observables::Dict{Symbol,Vector{Operator{T1}}}
+    function PESSModel(
+        unitcell::PESSUnitCell{T1,T2},
+        m_connect::AbstractMatrix{Int},
+        tile_pattern::AbstractArray{Int,N},
+        interactions::Vector{Tuple{NTuple{2,Int},NTuple{N,Int}}},
+        sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
+        observables=Dict(),
+    ) where {T1,T2,N}
+        new{T1,T2,N}(
+            unitcell,
+            m_connect,
+            tile_pattern |> collect,
+            interactions,
+            sitetypes,
+            convert(Dict{Symbol,Vector{Operator{T1}}}, observables),
+        )
+    end
+end
+
+function PESSModel(
+    unitcell::PESSUnitCell{T1,T2},
+    m_connect::AbstractMatrix{Int},
+    tile_pattern::AbstractArray{Int},
+    m_interactions::AbstractMatrix{Int},
+    sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
+    observables=Dict(),
+) where {T1,T2}
+    PESSModel(
+        unitcell,
+        m_connect,
+        tile_pattern |> collect,
+        interactions_from_tiling(m_interactions, tile_pattern),
+        sitetypes,
+        convert(Dict{Symbol,Vector{Operator{T1}}}, observables),
+    )
+end
+
+Base.show(io::IO, S::Simplex{M,N,T,A}) where {M,N,T,A} = print(
+    io,
+    "Simplex{$(M),$(N),$(T)}: $(size(S.tensor))",
+    "\n",
+    "Connections: \n",
+    ("$i -> $si\n" for (i, si) in zip(S.sites, S.siteinds))...,
+    "Virtual sites: ",
+    join(string.(S.vsites), ", "),
+)
+
+Base.show(io::IO, s::PESSSite{N,T1,T2}) where {N,T1,T2} =
+    print(io, "PESSSite{$N,$T1,$T2}: $(size(s.tensor))")
+
+Base.show(io::IO, u::PESSUnitCell{T1,T2}) where {T1,T2} = print(
+    io,
+    "PESSUnitCell{$T1,$T2}: $(length(u.sites)) sites, $(length(u.simplices)) simplices",
+)
+
+Base.show(io::IO, m::PESSModel{T1,T2}) where {T1,T2} = print(
+    io,
+    "PESSModel{$T1,$T2}: ",
+    length(m.unitcell.sites),
+    " sites, ",
+    "$(length(m.unitcell.simplices)) simplices\n",
+    "Number of interactions: ",
+    length(m.interactions),
+    "\n",
+    "Number of sitetypes: ",
+    length(m.sitetypes |> unique),
+    "\n",
+    "Defined observables: ",
+    join(string.(keys(m.observables)), ", "),
+)
+
+
+nsites(::Simplex{M,N}) where {M,N} = N
+nvirt(::Simplex{M,N}) where {M,N} = M
+virtualsiteinds(s::Simplex) = range(nsites(s) + 1, nvirt(s))
+nsimps(::PESSSite{N}) where {N} = N
+psize(site::PESSSite) = size(site.tensor)[end]
+
+
+"""
+`simple_update(m::PESSModel; τ₀, max_bond_rank, convergence, maxit, logger)`
+Iterated simple update of unit cell with one operator per simplex
+"""
+function simple_update(m::PESSModel; kwargs...)
+    simple_update(m.unitcell, m.observables[:H]; kwargs...)
+end
+
+const LogStep = @NamedTuple begin
+    diff::Float64
+    Δs_trunc::Matrix{Float64}
+end
+
+"""
+`simple_update(u::PESSUnitCell, ops, max_bond_dim, convergence, maxit, logger)`
+Iterated simple update of unit cell with one operator per bond
+"""
+function simple_update(
+    u::PESSUnitCell,
+    ops;
+    τ₀=1.0,
+    max_bond_rank=10,
+    min_τ=1e-5,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=Logger{LogStep}(; printit=50),
+    cache::ContractionCache=ContractionCache(),
+)
+    bondinfo =
+        [static_pess_su_info(u, i, max_bond_rank, cache) for (i, _) in enumerate(ops)]
+    it = 0
+    τ = τ₀
+    while τ >= min_τ
+        println("τ: ", τ)
+        simple_update(
+            u,
+            ops,
+            bondinfo,
+            τ;
+            max_bond_rank=max_bond_rank,
+            convergence=convergence,
+            sv_cutoff=sv_cutoff,
+            maxit=maxit - it,
+            logger=logger,
+        )
+        it = length(logger.log)
+        τ /= 10
+    end
+    return logger
+end
+
+function simple_update(
+    u,
+    ops,
+    info,
+    τ;
+    max_bond_rank=10,
+    convergence=1e-8,
+    sv_cutoff=1e-8,
+    maxit=-1,
+    logger=nothing,
+)
+    eops = [exp(-τ * op) for op in ops]
+    it = 0
+    while it <= maxit || maxit < 0
+        diff = 0.0
+        simplex_Δs_trunc = Vector{Float64}[]
+        for (op, info, simplex) in zip(eops, info, u.simplices)
+            d, Δs_trunc = simple_update_step!(
+                u.sites[collect(simplex.sites)],
+                simplex,
+                op,
+                info,
+                max_bond_rank,
+                sv_cutoff,
+            )
+            diff += d
+            push!(simplex_Δs_trunc, Δs_trunc)
+        end
+        !isnothing(logger) && record!(logger, (diff, stack(simplex_Δs_trunc)))
+        if diff < convergence
+            return logger
+        end
+        it += 1
+    end
+    return logger
+end
+
+
+"""
+    simpleupdate_step(sites, S, op, info, max_bond_rank, sv_cutoff)
+A single PESS simple update step on a single simplex consisting of:
+- Contracting the environment vectors of sites to adjacent simplices
+- QR factoring the sites
+- Contracting the operator-simplex-sites network to a tensor T
+- Calculating U unitaries via a eigenvalue HOSVD
+- Discarding EVs smaller than sv_cutoff and truncating the Us and eigenvalues to max_bond_rank
+- Storing the truncated EVs as new environment vectors
+- Retrieving S from the \$U^{†}s\$ and T
+- Reversing the QR factorisation of the sites
+- Reemitting the environment contracted in the first step
+"""
+function simple_update_step!(
+    sites::Vector{PESSSite{<:Any,T1,T2}},
+    S::Simplex{M,N,T1},
+    op,
+    info,
+    max_bond_rank,
+    sv_cutoff,
+) where {T1,T2,N,M}
+    qs = Array{T1}[]
+    rs = Array{T1}[]
+    for (i, site) in enumerate(sites)
+        contract_env!(site, info.env_inds[i])
+        q, r = qr_site(site, info.qr_perms[i])
+        push!(qs, q)
+        push!(rs, r)
+    end
+
+    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)::Array{T1}
+
+    Us = Array{T1}[]
+
+    step_diff = 0.0
+    Δs_trunc = Float64[]
+
+    for (i, site) in enumerate(sites)
+        U, Σ, Δ_trunc = eigsvd_trunc(
+            T,
+            info.svd_inds[i],
+            max_bond_rank,
+            sv_cutoff,
+        )::Tuple{Array{T1,3},Vector{T2},Float64}
+        step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
+        site.envVectors[info.sinds[i]] = Σ
+        push!(Us, U)
+        push!(Δs_trunc, Δ_trunc)
+    end
+
+    recalc_S!(S, T, Tuple(Us), info.S)
+
+    for (i, (site, U, q)) in enumerate(zip(sites, Us, qs))
+        deqr_site!(site, q, U, info.qr_perms[i])
+        emit_env!(site, info.env_inds[i])
+    end
+    return step_diff, Δs_trunc
+end
+
+function qr_site(site, perm)
+    Asize_permuted = size(site.tensor)[perm]
+    sA_r = Asize_permuted[end-1:end]
+    sA_q = Asize_permuted[1:end-2]
+    sA_qr = min(prod(sA_q), prod(sA_r))
+    A_reshaped = reshape(permutedims(site.tensor, perm), (prod(sA_q), prod(sA_r)))
+    q, r = qr(A_reshaped)
+    r_reshaped = reshape(r, (sA_qr, sA_r...))
+    return Matrix(q), r_reshaped
+end
+
+function contract_env!(site::PESSSite, inds)
+    site.tensor .= .*(site.tensor, (reshape(site.envVectors[i], n) for (i, n) in inds)...)
+end
+
+function emit_env!(site::PESSSite, inds)
+    site.tensor .=
+        .*(site.tensor, (reshape(1 ./ site.envVectors[i], n) for (i, n) in inds)...)
+end
+
+@generated function contract_op(
+    op,
+    S,
+    rs::NTuple{N,T_Site},
+    info::Tuple{Val{i_op},Val{i_S},Val{i_rs}},
+) where {N,T_Site,i_op,i_S,i_rs}
+    rightside = Expr(
+        :call,
+        :*,
+        :(op[$(i_op...)]),
+        :(S[$(i_S...)]),
+        (:(rs[$i][$(i_rs[i]...)]) for i = 1:N)...,
+    )
+    return :(@tensor out[:] := $rightside)
+end
+
+# Maybe use tensor contraction to save permutation
+function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
+    T_contr = eig_contraction(T, inds)
+    out_size = size(T)[inds[3]]
+    λ, U_r = eigen!(
+        Hermitian(reshape(T_contr, (prod(out_size), prod(out_size)))),
+        sortby=λ -> (-real(λ), -imag(λ)),
+    )
+    λ ./= sum(abs, λ)
+    svs_over_cutoff = count(>=(sv_cutoff^2), λ)
+    new_dim = min(svs_over_cutoff, max_bond_rank)
+    Σ_trunc = sqrt.(λ[1:new_dim])
+    U_trunc = U_r[:, 1:new_dim]
+    Δ_trunc = sum(abs, λ[new_dim+1:end])
+    return reshape(U_trunc, (out_size..., new_dim)), Σ_trunc, Δ_trunc
+end
+
+@generated function eig_contraction(
+    T::AbstractArray{T1,N},
+    (inds_open, inds_closed, inds_out)::Tuple{NTuple{2,Int},NTuple{M,Int},SVector{2,Int}},
+) where {T1,N,M}
+    syms = (gensym(), gensym(), gensym())
+    quote
+        out = similar(T, $T1, size(T)[vcat(inds_out, inds_out)])
+        TensorOperations.contract!(
+            true,
+            T,
+            :N,
+            T,
+            :C,
+            false,
+            out,
+            inds_open,
+            inds_closed,
+            inds_open,
+            inds_closed,
+            (1, 2, 3, 4),
+            $syms,
+        )
+    end
+end
+
+@generated function recalc_S!(
+    S,
+    T,
+    Us::NTuple{N,T_U},
+    info::Tuple{Val{i_T},Val{i_Us}},
+) where {N,T_U,i_T,i_Us}
+    rightside =
+        Expr(:call, :*, :(T[$(i_T...)]), (:(conj(Us[$i])[$(i_Us[i]...)]) for i = 1:N)...)
+    return :(@tensor new_S[:] := $rightside; S.tensor = new_S / norm(new_S))
+end
+
+function deqr_site!(site::PESSSite{N}, q, U, perm) where {N}
+    Asize_permuted = size(site.tensor)[perm]
+    s_q = Asize_permuted[1:end-2]
+    s_physical = size(site.tensor)[end]
+    s_new_bond = size(U)[3]
+    @tensor A_new_rp[:] := q[-1, 1] * U[1, -3, -2]
+    A_new_p = reshape(A_new_rp, (s_q..., s_new_bond, s_physical))
+    site.tensor = permutedims(A_new_p, sortperm(perm))
+end
+
+function rsize(site::PESSSite, D)
+    auxN = nsimps(site) - 1
+    qsize = D * auxN
+    rightsize = (D, size(site.tensor)[end])
+    leftsize = min(qsize, prod(rightsize))
+    return (leftsize, rightsize...)
+end
+
+site_env_inds(u::PESSUnitCell, S::Simplex) = Tuple(
+    Tuple([
+        (i, ntuple(x -> x == i ? Colon() : 1, i)) for
+        i = 1:nsimps(u.sites[site]) if i != sind
+    ]) for (site, sind) in zip(S.sites, S.siteinds)
+)
+
+function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank, cache::ContractionCache)
+    S = u.simplices[i_S]
+    sites = u.sites[collect(S.sites)]
+    sinds = S.siteinds
+    env_inds = site_env_inds(u, S)
+    qrperms = Tuple(
+        let N = nsimps(site)
+            SVector{N + 1}(moveind!(collect(1:N+1), sind, N))
+        end for (site, sind) in zip(sites, sinds)
+    )
+
+    virtualsizes = size(S.tensor)[collect(virtualsiteinds(S))]
+    psizes = [[size(site.tensor)[end] for site in sites]; virtualsizes...]
+    opsizes = Tuple([psizes; psizes])
+    Ssizes = Tuple(fill(max_bond_rank, nsites(S)); virtualsizes...)
+    rsizes = [rsize(site, max_bond_rank) for site in sites]
+    op_num, S_num, r_nums... = 1:(nsites(S)+2)
+    conts_nonvirt = [((op_num, i), (r_num, 3)) for (i, r_num) in enumerate(r_nums)]
+    conts_virt = [
+        ((op_num, i + length(conts_nonvirt)), (S_num, vind)) for
+        (i, vind) in enumerate(virtualsiteinds(S))
+    ]
+    conts_Srs = [((S_num, i), (r_num, 2)) for (i, r_num) in enumerate(r_nums)]
+    open_op = (op_num, Tuple((length(psizes)+1):length(opsizes)))
+    open_rs = [(r_num, (1,)) for r_num in r_nums]
+    i_c_op, i_c_S, i_c_rs... =
+        ncon_indices(
+            [opsizes, Ssizes, rsizes...],
+            vcat(conts_nonvirt, conts_virt, conts_Srs),
+            vcat(open_rs, [open_op]),
+            cache,
+        ) .|> Tuple
+
+    n_virt = nvirt(S)
+    n_sites = nsites(S)
+    T_dim = 2 * n_sites + n_virt #site bonds, site physical, virtual physical
+    Tperms = Tuple(
+        Tuple(moveind!(moveind!(collect(1:T_dim), i, 1), n_sites + i, 2)) for
+        (i, _) in enumerate(sites)
+    )
+    svd_inds = Tuple(
+        let
+            open_inds = (i, n_sites + i)
+            closed_inds = Tuple([n for n = 1:T_dim if n ∉ open_inds])
+            out_inds = SVector{2}(open_inds)
+            (open_inds, closed_inds, out_inds)
+        end for i = 1:n_sites
+    )
+
+    T_size = ([rsize[1] for rsize in rsizes]..., psizes...)
+    Usizes = [(rsize[1], rsize[3], max_bond_rank) for rsize in rsizes]
+    T_num, U_nums... = 1:(n_sites+1)
+    conts_reS_qr = [((T_num, i), (U_num, 1)) for (i, U_num) in enumerate(U_nums)]
+    conts_reS_phys =
+        [((T_num, i + n_sites), (U_num, 2)) for (i, U_num) in enumerate(U_nums)]
+    open_reS_Us = [(U_num, (3,)) for U_num in U_nums]
+    i_reS_T, i_reS_Us... =
+        ncon_indices(
+            vcat(T_size, Usizes),
+            vcat(conts_reS_qr, conts_reS_phys),
+            open_reS_Us,
+            cache,
+        ) .|> Tuple
+    return (
+        env_inds=env_inds,
+        qr_perms=qrperms,
+        contract_op=(Val(i_c_op), Val(i_c_S), Val(i_c_rs)),
+        svd_inds=svd_inds,
+        S=(Val(i_reS_T), Val(i_reS_Us)),
+        sinds=sinds,
+    )
+end
+
+function calc_simplex_ev(u::PESSUnitCell, op, n_simplex, cache::ContractionCache)
+    S = u.simplices[n_simplex]
+    N = nsites(S)
+    M = nvirt(S)
+    NM = N + M
+    braket = calc_simplex_braket(u, n_simplex, cache)
+    ev = ncon((braket, op.tensor), (collect(1:(2*NM)), collect(1:(2*NM))))
+    norm = ncon((braket,), ([1:NM; 1:NM],))
+    return ev ./ norm
+end
+
+function calc_simplex_braket(u::PESSUnitCell, n_simplex, cache::ContractionCache)
+    S = u.simplices[n_simplex]
+    N = nsites(S)
+    sites = u.sites[collect(S.sites)]
+    env_inds = site_env_inds(u, S)
+    for (site, env_ind) in zip(sites, env_inds)
+        contract_env!(site, env_ind)
+    end
+    site_tensors = [s.tensor for s in sites]
+    tensors = [S.tensor, S.tensor, site_tensors..., site_tensors...]
+    conjlist = vcat([false, true], repeat([false], N), repeat([true], N))
+    nS_a, nS_b = (1, 2)
+    ns_as = Tuple(3:(2+N))
+    ns_bs = Tuple((3+N):(2+2N))
+
+    simplex_site_contractions = [
+        ((nS, i), (ns, sind)) for (nS, nss) in zip((nS_a, nS_b), (ns_as, ns_bs)) for
+        (i, (ns, sind)) in enumerate(zip(nss, S.siteinds))
+    ]
+    site_braket_contractions = [
+        ((ns_a, i), (ns_b, i)) for
+        (ns_a, ns_b, site, sind) in zip(ns_as, ns_bs, sites, S.siteinds) for
+        i in filter(i -> i != sind, 1:nsimps(site))
+    ]
+    open_a = vcat(
+        [(ns_a, (nsimps(site) + 1,)) for (ns_a, site) in zip(ns_as, sites)],
+        (nS_a, Tuple(virtualsiteinds(S))),
+    )
+    open_b = vcat(
+        [(ns_b, (nsimps(site) + 1,)) for (ns_b, site) in zip(ns_bs, sites)],
+        (nS_b, Tuple(virtualsiteinds(S))),
+    )
+    ninds = ncon_indices(
+        size.(tensors),
+        vcat(simplex_site_contractions, site_braket_contractions),
+        vcat(open_a, open_b),
+        cache,
+    )
+
+    braket = ncon(tensors, collect.(ninds), conjlist)
+
+    for (site, env_ind) in zip(sites, env_inds)
+        emit_env!(site, env_ind)
+    end
+    return braket
+end
+
+function unitcell_from_simplices(
+    Ss::Vector{Simplex{<:Any,<:Any,T}},
+    psize=2,
+    initf=rand,
+) where {T}
+    T2 = real(T)
+    site_sizes = [
+        (site, sind, size(S.tensor)[i]) for S in Ss for
+        (i, (site, sind)) in enumerate(zip(S.sites, S.siteinds))
+    ]
+    sites = PESSSite{<:Any,T,T2}[
+        let
+            bsizes = Tuple(
+                map(x -> (x[3]), sort(filter(i -> i[1] == snum, site_sizes), by=x -> x[2])),
+            )
+            tensor = initf(T, (bsizes..., psize))
+            envVectors = Tuple([initf(T2, bsize) for bsize in bsizes])
+            PESSSite(tensor, envVectors)
+        end for snum in unique(first.(site_sizes))
+    ]
+    PESSUnitCell(sites, Ss)
+end
+
+function pess_unitcell_from_structurematrix(
+    m::AbstractMatrix{Int},
+    simplex_dims,
+    pdims,
+    initt,
+    initv,
+)
+    pess_unitcell_from_ordered_structurematrix(
+        make_ordered_structurematrix(m),
+        simplex_dims,
+        pdims,
+        initt,
+        initv,
+    )
+end
+
+function pess_unitcell_from_ordered_structurematrix(
+    m::AbstractMatrix{Int},
+    simplex_dims,
+    pdims,
+    initt,
+    initv,
+)
+    T1 = eltype(initt(1))
+    T2 = eltype(initv(1))
+    sitedims = Vector{Int}[]
+    simplex_site_map = [
+        Dict(sitenum => d for (d, sitenum) in zip(ds, findall(c .!= 0))) for
+        (ds, c) in zip(simplex_dims, eachcol(m))
+    ]
+    virtual_sites_for_simplex = [Tuple{Int,Int}[] for _ in simplex_dims]
+    for (i, siterow) in enumerate(eachrow(m))
+        i_simplex_for_site = findall(siterow .!= 0)
+        if length(i_simplex_for_site) == 1 # virtual site
+            i_simplex = only(i_simplex_for_site)
+            siteind = siterow[i_simplex]
+            virtual_sites = virtual_sites_for_simplex[i_simplex]
+            push!(virtual_sites, (siteind, i))
+            sort!(virtual_sites, by=first)
+        else
+            site_simplex_inds = siterow[i_simplex_for_site]
+            sdims =
+                [smap[i] for smap in simplex_site_map[i_simplex_for_site]][sortperm(site_simplex_inds)]
+            push!(sitedims, vcat(sdims, pdims[i]))
+        end
+    end
+
+    sites = (PESSSite{N,T1,T2} where {N})[
+        PESSSite(initt(Tuple(dims)), Tuple(initv.(dims[1:end-1]))) for dims in sitedims
+    ]
+    simplices = (Simplex{M,N,T1} where {M,N})[
+        let sdims = simplex_dims[i]
+            i_site_for_simplex =
+                filter(i_s -> count(!=(0), m[i_s, :]) > 1, findall(scol .!= 0))
+            simplex_site_inds = scol[i_site_for_simplex]
+            virtual_dims = [pdims[vsite] for (_, vsite) in virtual_inds]
+            nvirtual = length(virtual_dims)
+            sdims_full = Tuple(vcat(sdims, virtual_dims))
+            Simplex{nvirtual}(
+                initt(sdims_full),
+                Tuple(i_site_for_simplex),
+                Tuple([virt[2] for virt in virtual_inds]),
+                Tuple(simplex_site_inds),
+            )
+        end for (i, (virtual_inds, scol)) in
+        enumerate(zip(virtual_sites_for_simplex, eachcol(m)))
+    ]
+    PESSUnitCell(sites, simplices)
+end
+
+
+function normalized_1site_ops(
+    ops::Dict{Tuple{Int},Operator{T1,1,A}} where {T1,A},
+    u::PESSUnitCell{T},
+    sitetypes,
+) where {T}
+    [
+        let simplex_sites = (simplex.sites..., simplex.vsites...)
+            sum([
+                let
+                    occurrences = i <= nsites(simplex) ? nsimps(u.sites[i]) : 1
+                    ⊗(
+                        [
+                            i == j ? 1 / occurrences * ops[(sitetypes[snum],)].tensor :
+                            collect((one(T) * I)(psize(u.sites[osnum]))) for
+                            (j, osnum) in enumerate(simplex_sites)
+                        ]...,
+                    ) |> Operator
+                end for (i, snum) in enumerate(simplex_sites)
+            ])
+        end for simplex in u.simplices
+    ]
+end
+
+function edge_signature(((s1, o1), (s2, o2)))
+    sinds = ((s1, o1), (s2, o2)) |> collect |> sort
+    diff = o1 - o2
+    Tuple([siten for (siten, origin) in sinds]), diff.I
+end
+
+function interactions_from_tiling(m_connect, tile_pattern)
+    D = ndims(tile_pattern)
+    interactions =
+        [
+            combinations(
+                [(i, c1[i][2]) for i in findall(c1 .!= Ref((0, zero(CartesianIndex{D}))))],
+                2,
+            ) for c1 in eachcol(tile_structurematrix_with_origin(m_connect, tile_pattern))
+        ] |>
+        Iterators.flatten .|>
+        edge_signature |>
+        unique |>
+        sort
+    return interactions
+end
+
+function twosite_normalization_dict(
+    m_connect,
+    tile_pattern,
+    interactions=interactions_from_tiling(m_connect, tile_pattern),
+)
+    D = ndims(tile_pattern)
+    m_origin = tile_structurematrix_with_origin(m_connect, tile_pattern)
+    m_normal = tile_structurematrix(m_connect, tile_pattern)
+    pair_dict = Dict{Tuple{NTuple{2,Int},NTuple{D,Int}},Int}()
+    for (i_S, scol) in enumerate(eachcol(m_normal))
+        sites = findall(scol .!= 0)
+        for (i, s_i) in enumerate(sites)
+            for s_j in sites[i+1:end]
+                inds = edge_signature((
+                    (s_i, m_origin[s_i, i_S][2]),
+                    (s_j, m_origin[s_j, i_S][2]),
+                ))
+
+                (inds in interactions) || continue
+                pair_dict[inds] = get(pair_dict, inds, 0) + 1
+            end
+        end
+    end
+    Dict(k => 1 / v for (k, v) in pair_dict)
+end
+
+function register!(model::PESSModel, ops, name)
+    normalized_ops = normalized_ops(ops, model)
+    model.observables[name] = normalized_ops
+end
+
+function register!(model::PESSModel, ops::Vector{Operator}, name)
+    model.observables[name] = ops
+end
+
+function normalized_ops(
+    ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A},
+    u::PESSUnitCell,
+    m_connect,
+    tile_pattern,
+    sitetypes,
+    interactions,
+)
+    normalization_dict = twosite_normalization_dict(m_connect, tile_pattern, interactions)
+    m_origin = tile_structurematrix_with_origin(m_connect, tile_pattern)
+    [
+        let simplex_sites = (simplex.sites..., simplex.vsites...)
+            site_dims = vcat(
+                [size(site.tensor)[end] for site in u.sites[simplex.sites|>collect]],
+                size(simplex.tensor)[virtualsiteinds(simplex)] |> collect,
+            )
+            sum([
+                let
+                    op_id = (sitetypes[s_i], sitetypes[s_j]) |> collect |> sort |> Tuple
+                    normalization_dict[edge_id] *
+                    nsite_op(ops[op_id], (i, j + i), site_dims)
+                end for (i, s_i) in enumerate(simplex_sites) for
+                (j, (s_j, edge_id)) in enumerate(
+                    map(simplex_sites[i+1:end]) do s_j
+                        (
+                            s_j,
+                            edge_signature((
+                                (s_i, m_origin[s_i, i_S][2]),
+                                (s_j, m_origin[s_j, i_S][2]),
+                            )),
+                        )
+                    end,
+                ) if edge_id in interactions
+            ])
+        end for (i_S, simplex) in enumerate(u.simplices)
+    ]
+end
+
+normalized_ops(ops::Dict{Tuple{Int},Operator{T,1,A}} where {T,A}, model::PESSModel) =
+    normalized_1site_ops(ops, model.unitcell, model.sitetypes)
+normalized_ops(ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A}, model::PESSModel) =
+    normalized_ops(
+        ops,
+        model.unitcell,
+        model.m_connect,
+        model.tile_pattern,
+        model.sitetypes,
+        model.interactions,
+    )
+normalized_ops(op::Operator{T,N,A}, model::PESSModel) where {T,N,A} =
+    normalized_ops(Dict{NTuple{N,Int},Operator{T,N,A}}(ntuple(_ -> 1, Val(N)) => op), model)
+
+function per_site_energy(model::PESSModel, cache)
+    nsites = length(model.unitcell.sites)
+    simplex_energies = [
+        calc_simplex_ev(model.unitcell, op, i, cache) for
+        (i, op) in enumerate(model.observables[:H])
+    ]
+    real(sum(simplex_energies) / nsites)
+end
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/gPESS.jl :eval no :hidden
+end
+#+END_SRC
+** Connection Matrices
+#+BEGIN_SRC jupyter-julia :tangle src/connection_matrices.jl :eval no :hidden
+module ConnectionMatrices
+using ..Util: connection_matrix_from_connections
+export connection_matrix_dict
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/connection_matrices.jl
+M_PEPS_floretpentagon =
+    [
+        ((1, 1, 2), (2, 1, 3)),
+        ((2, 1, 1), (3, 1, 2)),
+        ((3, 1, 3), (5, 1, 2)),
+        ((3, 1, 1), (4, 1, 3)),
+        ((4, 1, 1), (6, 1, 2)),
+        ((6, 1, 1), (7, 1, 3)),
+        ((7, 1, 1), (8, 1, 2)),
+        ((7, 1, 2), (9, 1, 3)),
+        ((5, 1, 1), (1, 2, 4)),
+        ((6, 1, 3), (1, 2, 3)),
+        ((8, 1, 3), (2, 2, 2)),
+        ((8, 1, 1), (1, 4, 5)),
+        ((9, 1, 1), (5, 3, 3)),
+        ((9, 1, 2), (1, 3, 1)),
+        ((4, 1, 2), (1, 3, 6)),
+    ] |> connection_matrix_from_connections
+
+M_PESS_floretpentagon_petaltwirl =
+    [
+        ((3, 1, 1), (4, 1, 3), (5, 1, 1), (6, 1, 3), (1, 2, 3)),
+        ((6, 1, 1), (7, 1, 3), (8, 1, 3), (1, 2, 2), (2, 2, 2)),
+        ((4, 1, 1), (6, 1, 2), (7, 1, 2), (9, 1, 3), (1, 3, 6)),
+        ((9, 1, 2), (1, 3, 1), (2, 3, 3), (3, 3, 3), (5, 3, 2)),
+        ((7, 1, 1), (8, 1, 2), (9, 1, 1), (5, 3, 3), (1, 4, 4)),
+        ((8, 1, 1), (2, 2, 1), (3, 2, 2), (4, 2, 2), (1, 4, 5)),
+    ] |> connection_matrix_from_connections
+
+M_PESS_square =
+    [((1, 1, 1), (1, 2, 2), (1, 3, 4), (1, 4, 3))] |> connection_matrix_from_connections
+
+M_PESS_kagome_3 =
+    [((1, 1, 1), (2, 1, 2), (3, 1, 1)), ((1, 4, 2), (2, 2, 1), (3, 3, 2))] |>
+    connection_matrix_from_connections
+
+M_PESS_triangular =
+    connection_matrix_from_connections([((1, 1, 1), (1, 2, 2), (1, 3, 3))], 4)
+
+connection_matrix_dict = Dict(
+    "PEPS_floretpentagon" => M_PEPS_floretpentagon,
+    "PESS_floretpentagon_petaltwirl" => M_PESS_floretpentagon_petaltwirl,
+    "PESS_square" => M_PESS_square,
+    "PESS_kagome_3" => M_PESS_kagome_3,
+)
+#+END_SRC
+
+#+BEGIN_SRC jupyter-julia :tangle src/connection_matrices.jl :eval no :hidden
+end
+#+END_SRC
+* Examples
+** Test Ising simple update
+#+BEGIN_SRC jupyter-julia :tangle src/examples.jl :eval no :hidden
+module Examples
+using ..OptimalContraction
+using ..Operators
+using ..Util
+using ..gPEPS
+using ..ConnectionMatrices
+#+END_SRC
+#+BEGIN_SRC jupyter-julia :tangle src/examples.jl
+import LinearAlgebra: I
+
+σ_z = [1 0; 0 -1.0]
+
+σ_x = [
+    0 1
+    1 0.0
+]
+σ_y = [
+    0 -im
+    im 0
+]
+σ_z = [
+    1 0
+    0 -1.0
+]
+
+s_x = σ_x / 2
+s_y = σ_y / 2
+s_z = σ_z / 2
+
+
+heisenberg_2site(J) = -J * (s_x ⊗ s_x + s_y ⊗ s_y + s_z ⊗ s_z)
+spin_1site(μ) = -μ * s_z
+
+ising_2site(J) = -J * (σ_z / 2 ⊗ σ_z / 2)
+
+ising_ops(u::UnitCell, J, μ) = [
+    Site2Operator(ising_2site(J)) + Site2Operator(site1_op) for
+    site1_op in normalized_1site_ops(spin_1site(μ), u)
+]
+
+M_squareab = [
+    1 2 3 4
+    3 4 1 2
+]
+
+function test_ising(J=1.0, μ=0.0; cuda=false)
+    tocuda = identity
+    if cuda
+        initf = CUDA.rand
+        tocuda = CuArray
+    else
+        initf = Base.rand
+    end
+
+    u = unitcell_from_structurematrix(M_squareab, [2, 3, 4, 5])
+
+    op2 = ising_2site(J)
+    ops1 = normalized_1site_ops(spin_1site(μ), u)
+    ops = [Site2Operator(op .+ op2 |> tocuda) for op in ops1]
+
+    info = simple_update_information(u, 2)
+    A = u.sites[1]
+    B = u.sites[2]
+    logger = Logger([], 50)
+    simple_update(
+        u,
+        ops;
+        τ₀=1.0,
+        max_bond_rank=6,
+        min_τ=1e-5,
+        convergence=1e-8,
+        sv_cutoff=1e-8,
+        maxit=50000,
+        logger=logger,
+    )
+    E = sum([calc_2site_ev(u, op, i) for (i, op) in enumerate(ops)]) / 2
+    return logger, u, ops, E
+
+
+    # simple_update_step!(u.sites[1],
+    #     u.sites[2],
+    #     eops[1],
+    #     b1, S, info, 10,
+    #     1e-10)
+end
+
+
+# R = test_ising(-1.0)
+#+END_SRC
+
+** Test Heisenberg with simple update
+#+BEGIN_SRC jupyter-julia :tangle src/examples.jl
+function test_heisenberg(J=1.0, μ=0.0)
+    u = unitcell_from_structurematrix(M_squareab, [2, 3, 4, 5], rand)
+
+    op2 = heisenberg_2site(J)
+    ops1 = normalized_1site_ops(spin_1site(μ), u)
+    ops = [Site2Operator(op .+ op2) for op in ops1]
+
+    info = simple_update_information(u, 2)
+    A = u.sites[1]
+    B = u.sites[2]
+    logger = Logger([], 50)
+    simple_update(
+        u,
+        ops;
+        τ₀=1.0,
+        max_bond_rank=20,
+        min_τ=1e-5,
+        convergence=1e-7,
+        sv_cutoff=1e-8,
+        maxit=50000,
+        logger=logger,
+    )
+    E = sum([calc_2site_ev(u, op, i) for (i, op) in enumerate(ops)]) / 2
+    return logger, u, ops, E
+
+
+    # simple_update_step!(u.sites[1],
+    #     u.sites[2],
+    #     eops[1],
+    #     b1, S, info, 10,
+    #     1e-10)
+end
+#+END_SRC
+
+** Try simple update on Floret Pentagon
+#+BEGIN_SRC jupyter-julia :tangle src/examples.jl
+M_floretpent_6petal = [
+    1 2 3 0 0 0 0 0 0 0 0 0 0 0 0
+    3 0 0 1 2 0 0 0 0 0 0 0 0 0 0
+    0 0 0 0 3 1 2 0 0 0 0 0 0 0 0
+    0 0 0 0 0 0 1 2 3 0 0 0 0 0 0
+    0 0 0 0 0 0 0 3 0 1 2 0 0 0 0
+    0 0 2 0 0 0 0 0 0 0 1 3 0 0 0
+    0 0 0 0 0 0 0 0 0 0 0 1 2 3 0
+    0 0 0 0 0 3 0 0 0 0 0 0 1 0 2
+    0 1 0 4 0 0 0 0 2 5 0 0 0 3 6
+]
+
+function heisenberg_simple_update(M, J=-1.0, μ=0.0; bonddims=fill(5, size(M)[2]))
+    u = unitcell_from_structurematrix(M, bonddims, fill(2, size(M)[1]), rand)
+    op2 = heisenberg_2site(J)
+
+    ops1 = normalized_1site_ops(spin_1site(μ), u)
+    ops = [Site2Operator(op .+ op2) for op in ops1]
+
+    logger = Logger([], 1)
+    simple_update(
+        u,
+        ops;
+        τ₀=1.0,
+        max_bond_rank=20,
+        min_τ=1e-5,
+        convergence=1e-6,
+        sv_cutoff=1e-8,
+        maxit=50000,
+        logger=logger,
+    )
+    E = sum([calc_2site_ev(u, op, i) for (i, op) in enumerate(ops)]) / 2
+    return logger, u, ops, E
+end
+#+END_SRC
+
+
+#+BEGIN_SRC jupyter-julia :tangle src/examples.jl :eval no :hidden
+end
+#+END_SRC
