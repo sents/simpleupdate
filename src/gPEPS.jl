@@ -11,7 +11,11 @@ export Site,
     calc_2site_ev,
     normalized_1site_ops,
     unitcell_from_structurematrix,
-    PEPS_SU_LogStep
+    PEPS_SU_LogStep,
+    PEPSModel,
+    register!,
+    per_site_energy
+
 # gPEPS:1 ends here
 
 # [[file:../SimpleUpdate.org::*gPEPS][gPEPS:2]]
@@ -76,6 +80,39 @@ struct UnitCell
     bonds::Vector{Bond}
 end
 
+struct PEPSModel
+    unitcell :: UnitCell
+    sitetypes::Vector{Int}
+    observables::Dict{Symbol,Vector{Site2Operator}}
+    function PEPSModel(
+        unitcell::UnitCell,
+        sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
+        observables=Dict()
+    )
+        new(
+            unitcell,
+            sitetypes,
+            convert(Dict{Symbol,Vector{Site2Operator}}, observables)
+        )
+    end
+end
+
+function register!(model::PEPSModel, ops, name)
+    model.observables[name] = convert(Vector{Site2Operator}, ops)
+end
+
+function simple_update(m::PEPSModel; kwargs...)
+    simple_update(m.unitcell, m.observables[:H]; kwargs...)
+end
+
+function per_site_energy(model::PEPSModel)
+    nsites = length(model.unitcell.sites)
+    bond_energies = [
+        calc_2site_ev(model.unitcell, op, i) for
+        (i, op) in enumerate(model.observables[:H])
+    ]
+    real(sum(bond_energies) / nsites)
+end
 
 involved(sitenum, bond) = bond.A == sitenum || bond.B == sitenum
 function auxbonds(bonds, sitenum, bondnum)
@@ -89,6 +126,9 @@ Helper function to get the Bond indice of a bond b.
 i is the id of a Site.
 """
 ind(b::Bond, i) = i == b.A ? b.Aind : b.Bind
+
+shape_to_last(n) = ntuple(x -> x == n ? Colon() : 1, n)
+
 """
     static_simpleupdate_info(A, B, bond, auxbonds_A, auxbonds_B; cache=nothing)
 Calculate nessecary information about a simple update step for a certain `bond`.
@@ -114,6 +154,12 @@ function static_simpleupdate_info(
         indsauxa[1] = bond.Aind
     end
 
+    shapeauxa = shape_to_last.(indsauxa)
+    shapeauxb = shape_to_last.(indsauxb)
+
+    shaperea = shape_to_last.(indsrea)
+    shapereb = shape_to_last.(indsreb)
+
     qrpermA = moveind!(collect(1:N1), bond.Aind, N1)
     qrpermB = moveind!(collect(1:N2), bond.Bind, N2)
 
@@ -121,10 +167,10 @@ function static_simpleupdate_info(
     permB = moveind!(collect(1:N2), N2, bond.Bind)
 
     return (
-        auxA=Val(Tuple(indsauxa)),
-        auxB=Val(Tuple(indsauxb)),
-        reA=Val(Tuple(indsrea)),
-        reB=Val(Tuple(indsreb)),
+        auxA=shapeauxa |> Val ∘ Tuple,
+        auxB=shapeauxb |> Val ∘ Tuple,
+        reA=shaperea |> Val ∘ Tuple,
+        reB=shapereb |> Val ∘ Tuple,
         qrA_perm=qrpermA,
         qrB_perm=qrpermB,
         permA=permA,
@@ -154,7 +200,7 @@ end
     bond_tensors,
     ::Val{order},
 ) where {T,N,order}
-    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
+    bonds = [:(reshape(bond_tensors[$n], $(order[n]))) for n = 1:(N-1) if order[n] ≠ ()]
     return :(A .= .*(A, $(bonds...)))
 end
 
@@ -163,7 +209,7 @@ end
     bond_tensors,
     ::Val{order},
 ) where {T,N,order}
-    bonds = [:(reshape(bond_tensors[$n], $(Val(order[n])))) for n = 1:N if order[n] ≠ 0]
+    bonds = [:(reshape(bond_tensors[$n], $(order[n]))) for n = 1:(N-1) if order[n] ≠ ()]
     return :(.*(A, $(bonds...)))
 end
 
@@ -263,7 +309,7 @@ function calc_1site_BraKet(u::UnitCell, sitenum)
     A = contract_bonds(
         u.sites[sitenum].tensor,
         [bond.vector for bond in bonds],
-        Val(Tuple(ind(bond, sitenum) for bond in bonds)),
+        Val(Tuple(shape_to_last(ind(bond, sitenum)) for bond in bonds)),
     )
     N = ndims(A)
     inds = ncon_indices(size.([A, A]), [((1, i), (2, i)) for i = 1:(N-1)], [(1, N), (2, N)])
@@ -281,11 +327,19 @@ function calc_2site_BraKet(u::UnitCell, alongbond)
     auxtensors_B = [bond.vector for bond in auxbonds_B]
 
     if prod(size(A)) <= prod(size(B))
-        ainds = (bond.Aind, (ind(b, bond.A) for b in auxbonds_A)...)
-        binds = (0, (ind(b, bond.B) for b in auxbonds_B)...)
+        ainds = Tuple(shape_to_last.(
+            (bond.Aind, (ind(b, bond.A) for b in auxbonds_A)...)
+        ))
+        binds = Tuple(shape_to_last.(
+            (0,(ind(b, bond.B) for b in auxbonds_B)...)
+        ))
     else
-        binds = (bond.Bind, (ind(b, bond.B) for b in auxbonds_B)...)
-        ainds = (0, (ind(b, bond.A) for b in auxbonds_A)...)
+        binds = Tuple(shape_to_last.(
+            (bond.Bind, (ind(b, bond.B) for b in auxbonds_B)...)
+        ))
+        ainds = Tuple(shape_to_last.(
+            (0, (ind(b, bond.A) for b in auxbonds_A)...)
+        ))
     end
 
     Ab = contract_bonds(A, [[bond.vector]; auxtensors_A], Val(ainds))
@@ -345,7 +399,7 @@ function simple_update(
     convergence=1e-8,
     sv_cutoff=1e-8,
     maxit=-1,
-    logger=Logger{LogStep}([], 0),
+    logger=Logger{LogStep}(printit=50),
 )
     bondinfo = [simple_update_information(u, i) for (i, _) in enumerate(ops)]
     it = 0
@@ -363,7 +417,7 @@ function simple_update(
             maxit=maxit - it,
             logger=logger,
         )
-        it += logger.log[end].it
+        it += length(logger.log)
         τ /= 10
     end
     return logger
