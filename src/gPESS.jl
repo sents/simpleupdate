@@ -17,7 +17,8 @@ export Simplex,
     pess_unitcell_from_ordered_structurematrix,
     register!,
     static_pess_su_info,
-    per_site_energy
+    per_site_energy,
+    simple_update
 # gPESS:1 ends here
 
 # [[file:../SimpleUpdate.org::*gPESS][gPESS:2]]
