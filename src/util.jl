@@ -67,6 +67,8 @@ struct Logger{LogStep}
     log::Vector{LogStep}
 end
 
+Logger{LogStep}(f) where LogStep = Logger{LogStep}(f, LogStep[])
+
 Logger{LogStep}(; printit::Int=0) where {LogStep} =
     Logger{LogStep}(LogStep[]) do logv, step
         if length(logv) % printit == 0
@@ -75,8 +77,8 @@ Logger{LogStep}(; printit::Int=0) where {LogStep} =
     end
 
 function record!(logger::Logger{LogStep}, step::LogStep) where {LogStep}
-    logger.logf(logger.log, step)
     push!(logger.log, step)
+    logger.logf(logger.log, step)
 end
 
 record!(logger::Logger{LogStep}, t::Tuple) where {LogStep<:NamedTuple} =
