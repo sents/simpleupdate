@@ -233,7 +233,7 @@ function simple_update(
         [static_pess_su_info(u, i, max_bond_rank, cache) for (i, _) in enumerate(ops)]
     it = 0
     τ = τ₀
-    while τ >= min_τ
+    while τ >= min_τ && (it <= maxit || maxit < 0)
         println("τ: ", τ)
         simple_update(
             u,
@@ -264,7 +264,7 @@ function simple_update(
     logger=nothing,
 )
     eops = [exp(-τ * op) for op in ops]
-    it = 0
+    it = isnothing(logger) ? 0 : length(logger.log)
     while it <= maxit || maxit < 0
         diff = 0.0
         simplex_Δs_trunc = Vector{Float64}[]
