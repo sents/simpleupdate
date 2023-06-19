@@ -9,7 +9,8 @@ export ncon_indices,
     tile_structurematrix,
     tile_structurematrix_with_origin,
     make_ordered_structurematrix,
-    connection_matrix_from_connections
+    connection_matrix_from_connections,
+    stripN
 # Util:1 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:2]]
@@ -180,6 +181,15 @@ function connection_matrix_from_connections(
     end
     m
 end
+
+
+# See https://github.com/JuliaLang/julia/issues/35543
+"Strip type parameters of type. Works only for concrete types, not for UnionAll"
+basetype(T::Type) = T.name.wrapper
+
+"Strip dimension Parameter from AbstractArray"
+stripN(::A) where {T,N,A<:AbstractArray{T,N}} = basetype(A){T}
+stripN(A::Type{<:AbstractArray{T,N}}) where {T,N} = basetype(A){T}
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]

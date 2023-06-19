@@ -349,7 +349,7 @@ function simple_update_step!(
     return step_diff, Δs_trunc
 end
 
-function qr_site(site, perm)
+function qr_site(site::PESSSite{N, T1, T2, M}, perm) where {N, T1, T2, M}
     Asize_permuted = size(site.tensor)[perm]
     sA_r = Asize_permuted[end-1:end]
     sA_q = Asize_permuted[1:end-2]
@@ -357,7 +357,7 @@ function qr_site(site, perm)
     A_reshaped = reshape(permutedims(site.tensor, perm), (prod(sA_q), prod(sA_r)))
     q, r = qr(A_reshaped)
     r_reshaped = reshape(r, (sA_qr, sA_r...))
-    return Matrix(q), r_reshaped
+    return stripN(M){2}(q), r_reshaped
 end
 
 function contract_env!(site::PESSSite, inds)
