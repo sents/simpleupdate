@@ -10,7 +10,8 @@ export ncon_indices,
     tile_structurematrix_with_origin,
     make_ordered_structurematrix,
     connection_matrix_from_connections,
-    stripN
+    stripN,
+    similar_atype
 # Util:1 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:2]]
@@ -190,6 +191,12 @@ basetype(T::Type) = T.name.wrapper
 "Strip dimension Parameter from AbstractArray"
 stripN(::A) where {T,N,A<:AbstractArray{T,N}} = basetype(A){T}
 stripN(A::Type{<:AbstractArray{T,N}}) where {T,N} = basetype(A){T}
+
+similar_atype(A,N=A.parameters[2],T=A.parameters[1])=basetype(A){T,N}
+similar_atype(
+    A::Type{<:CuArray},
+    N=A.parameters[2],
+    T=A.parameters[1])=basetype(A){T,N,A.parameters[3]}
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]

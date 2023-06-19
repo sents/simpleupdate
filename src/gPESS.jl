@@ -305,14 +305,15 @@ A single PESS simple update step on a single simplex consisting of:
 """
 function simple_update_step!(
     sites::Vector{PESSSite{<:Any,T1,T2}},
-    S::Simplex{M,N,T1},
+    S::Simplex{M,N,T1,A},
     op,
     info,
     max_bond_rank,
     sv_cutoff,
-) where {T1,T2,N,M}
-    qs = Array{T1}[]
-    rs = Array{T1}[]
+) where {T1,T2,N,M,A}
+    Ttype = stripN(A)
+    qs = Ttype[]
+    rs = Ttype[]
     for (i, site) in enumerate(sites)
         contract_env!(site, info.env_inds[i])
         q, r = qr_site(site, info.qr_perms[i])
@@ -320,12 +321,12 @@ function simple_update_step!(
         push!(rs, r)
     end
 
-    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)::Array{T1}
+    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)::Ttype
 
-    Us = Array{T1}[]
+    Us = Ttype[]
 
     step_diff = 0.0
-    Δs_trunc = Float64[]
+    Δs_trunc = T2[]
 
     for (i, site) in enumerate(sites)
         U, Σ, Δ_trunc = eigsvd_trunc(
@@ -333,7 +334,7 @@ function simple_update_step!(
             info.svd_inds[i],
             max_bond_rank,
             sv_cutoff,
-        )::Tuple{Array{T1,3},Vector{T2},Float64}
+        )::Tuple{similar_atype(A,3),similar_atype(A,1,T2), T2}
         step_diff += padded_inner_product(site.envVectors[info.sinds[i]], Σ)
         site.envVectors[info.sinds[i]] = Σ
         push!(Us, U)
@@ -385,20 +386,22 @@ end
     return :(@tensor out[:] := $rightside)
 end
 
-# Maybe use tensor contraction to save permutation
+_eigf(T) = eigen!(T)
+_eigf(T::CuArray)=eigen(T)
+
+# Maybe use tensonr contraction to save permutation
 function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
     T_contr = eig_contraction(T, inds)
     out_size = size(T)[inds[3]]
-    λ, U_r = eigen!(
+    λ, U_r = eigen(
         Hermitian(reshape(T_contr, (prod(out_size), prod(out_size)))),
-        sortby=λ -> (-real(λ), -imag(λ)),
     )
     λ ./= sum(abs, λ)
     svs_over_cutoff = count(>=(sv_cutoff^2), λ)
     new_dim = min(svs_over_cutoff, max_bond_rank)
-    Σ_trunc = sqrt.(λ[1:new_dim])
-    U_trunc = U_r[:, 1:new_dim]
-    Δ_trunc = sum(abs, λ[new_dim+1:end])
+    Σ_trunc = sqrt.(λ[end-new_dim+1:end])
+    U_trunc = U_r[:, end-new_dim+1:end]
+    Δ_trunc = sum(abs, λ[1:end-new_dim])
     return reshape(U_trunc, (out_size..., new_dim)), Σ_trunc, Δ_trunc
 end
 
