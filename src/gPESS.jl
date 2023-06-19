@@ -73,17 +73,17 @@ the last Dimension represents the physical index.
 - `tensor :: M`: The tensor containing N dimensions connecting to simplices and one physical
 - `envVectors :: SizedArray{N,Vector{T2}}`: Vectors containing entanglement mean field weights in the direction of the connected simplices
 """
-mutable struct PESSSite{N,T1,T2,M<:AbstractArray{T1}}
+mutable struct PESSSite{N,T1,T2,M<:AbstractArray{T1},V<:AbstractVector{T2}}
     tensor::M
-    envVectors::SizedVector{N,Vector{T2},Vector{Vector{T2}}}
+    envVectors::SizedVector{N,V,Vector{V}}
     function PESSSite(
         tensor::M,
-        envVectors::NTuple{N,Vector{T2}},
-    ) where {N,T1,T2,M<:AbstractArray{T1}}
+        envVectors::NTuple{N,V},
+    ) where {N,T1,T2,M<:AbstractArray{T1}, V<:AbstractVector{T2}}
         @assert ndims(tensor) == N + 1 """
             Dimension of `tensor` has to be N+1=$(N+1)!
             """
-        new{N,T1,T2,M}(tensor, SizedVector{N,Vector{T2}}(envVectors))
+        new{N,T1,T2,M,V}(tensor, SizedVector{N,V}(envVectors))
     end
 end
 
