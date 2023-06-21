@@ -1,6 +1,7 @@
 # [[file:../SimpleUpdate.org::*Util][Util:1]]
 module Util
 using ..OptimalContraction: ContractionCache, optimal_contraction_inds
+using LinearAlgebra
 export ncon_indices,
     moveind!,
     padded_inner_product,
@@ -11,11 +12,12 @@ export ncon_indices,
     make_ordered_structurematrix,
     connection_matrix_from_connections,
     stripN,
-    similar_atype
+    similar_atype,
+    eigf
 # Util:1 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:2]]
-using LinearAlgebra: norm
+using LinearAlgebra: norm, eigen!
 """
     ncon_indices(sizes, contractions, open_inds; optimize=false)
 Calculate the ncon style indices for a series of indice contractions and open indices
@@ -193,10 +195,8 @@ stripN(::A) where {T,N,A<:AbstractArray{T,N}} = basetype(A){T}
 stripN(A::Type{<:AbstractArray{T,N}}) where {T,N} = basetype(A){T}
 
 similar_atype(A,N=A.parameters[2],T=A.parameters[1])=basetype(A){T,N}
-similar_atype(
-    A::Type{<:CuArray},
-    N=A.parameters[2],
-    T=A.parameters[1])=basetype(A){T,N,A.parameters[3]}
+
+eigf(T) = eigen!(T)
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]

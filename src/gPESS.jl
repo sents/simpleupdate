@@ -386,14 +386,12 @@ end
     return :(@tensor out[:] := $rightside)
 end
 
-_eigf(T) = eigen!(T)
-_eigf(T::CuArray)=eigen(T)
 
 # Maybe use tensonr contraction to save permutation
 function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
     T_contr = eig_contraction(T, inds)
     out_size = size(T)[inds[3]]
-    λ, U_r = eigen(
+    λ, U_r = eigf(
         Hermitian(reshape(T_contr, (prod(out_size), prod(out_size)))),
     )
     λ ./= sum(abs, λ)
