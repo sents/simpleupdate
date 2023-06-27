@@ -41,6 +41,9 @@ struct ContractionSignature{T,N}
 end
 ContractionSignature(tensorsizes, indices) =
     ContractionSignature(Tuple(Tuple.(tensorsizes)), Tuple(Tuple.(indices)))
+function ContractionSignature(tensorsizes::Vector{Vector{Int}}, indices)
+    ContractionSignature(convert.(Vector{BigInt}, tensorsizes), indices)
+end
 
 
 Base.:(==)(c1::ContractionSignature, c2::ContractionSignature) =
@@ -48,7 +51,7 @@ Base.:(==)(c1::ContractionSignature, c2::ContractionSignature) =
 
 const OptimalContractionInfo = @NamedTuple begin
     order::Vector{Any}
-    cost::Union{Int,Poly{:χ}}
+    cost::Union{BigInt,Poly{:χ}}
 end
 
 struct ContractionCache
