@@ -118,9 +118,8 @@ function tile_structurematrix_with_origin(m, tile_pattern)
             for (row_to, row_from) in
                 zip(((tocell-1)*n+1):tocell*n, ((fromcell-1)*n+1):fromcell*n)
                 for col = 1:nS
-                    celli = fld_ind(row_from, n)
                     if m[row_from, col] != 0
-                        m_struct[row_to, col] = (m[row_from, col], cinds[celli])
+                        m_struct[row_to, col] = (m[row_from, col], cinds[fromcell])
                     end
                 end
             end
