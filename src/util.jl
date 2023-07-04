@@ -18,6 +18,7 @@ export ncon_indices,
 
 # [[file:../SimpleUpdate.org::*Util][Util:2]]
 using LinearAlgebra: norm, eigen!
+import TensorOperations: use_cache, cache, similar_from_structure, taskid
 """
     ncon_indices(sizes, contractions, open_inds; optimize=false)
 Calculate the ncon style indices for a series of indice contractions and open indices
@@ -196,6 +197,31 @@ stripN(A::Type{<:AbstractArray{T,N}}) where {T,N} = basetype(A){T}
 similar_atype(A,N=A.parameters[2],T=A.parameters[1])=basetype(A){T,N}
 
 eigf(T) = eigen!(T)
+
+function cached_similar_ordered_inds(T, A, sym, sizes, ainds)
+    structure = map(((tnum, tdim),)->sizes[tnum][tdim], ainds)
+    if use_cache()
+        type = Core.Compiler.return_type(
+            similar,
+            Tuple{typeof(A), Type{T}, typeof(structure)}
+        )
+        key = (sym, taskid(), type, structure)
+        C::type = get!(cache, key) do
+            similar_from_structure(A, T, structure)
+        end
+    end
+    return C
+end
+
+ordered_inds(tinds) = getindex.(
+    sort(reduce(vcat,
+            ([
+                [(ind,tnum,tdim) for (tdim,ind) in enumerate(tind) if ind<0]
+            for (tnum, tind) in enumerate(tinds)])
+        );
+        by=i->-i[1]),
+    Ref(2:3)
+    ) |> Tuple
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]

@@ -3,6 +3,7 @@ module gPESS
 using ..OptimalContraction
 using ..Operators
 using ..Util
+import ..Util: cached_similar_ordered_inds, ordered_inds
 export Simplex,
     PESSSite,
     PESSUnitCell,
@@ -26,6 +27,7 @@ using LinearAlgebra: full!
 using StaticArrays
 using LinearAlgebra
 using TensorOperations
+import TensorOperations: cached_similar_from_indices, similar_from_structure
 import Combinatorics: combinations
 
 
@@ -376,6 +378,9 @@ end
     rs::NTuple{N,T_Site},
     info::Tuple{Val{i_op},Val{i_S},Val{i_rs}},
 ) where {N,T_Site,i_op,i_S,i_rs}
+    Ttype = eltype(S)
+    syms = (gensym(),)
+    ainds = ordered_inds((i_op, i_S, i_rs...))
     rightside = Expr(
         :call,
         :*,
@@ -383,7 +388,16 @@ end
         :(S[$(i_S...)]),
         (:(rs[$i][$(i_rs[i]...)]) for i = 1:N)...,
     )
-    return :(@tensor out[:] := $rightside)
+    return quote
+        out = cached_similar_ordered_inds(
+            $Ttype,
+            S,
+            $(syms)[1], # Workaround for https://github.com/JuliaLang/julia/issues/23809
+            size.([op, S, rs...]),
+            $ainds
+        )
+        @tensor out[:] = $rightside
+    end
 end
 
 
@@ -406,9 +420,10 @@ end
     T::AbstractArray{T1,N},
     (inds_open, inds_closed, inds_out)::Tuple{NTuple{2,Int},NTuple{M,Int},SVector{2,Int}},
 ) where {T1,N,M}
-    syms = (gensym(), gensym(), gensym())
+    Ttype = eltype(T)
+    syms = (gensym(), gensym(), gensym(), gensym())
     quote
-        out = similar(T, $T1, size(T)[vcat(inds_out, inds_out)])
+        out = cached_similar_from_indices($syms[1], $Ttype, inds_open, inds_open, T, :N)
         TensorOperations.contract!(
             true,
             T,
@@ -422,10 +437,12 @@ end
             inds_open,
             inds_closed,
             (1, 2, 3, 4),
-            $syms,
+            $syms[2:end],
         )
     end
 end
+
+_map_sizes(ainds, sizes) = map(((tnum, tdim),)->sizes[tnum][tdim], ainds)
 
 @generated function recalc_S!(
     S,
@@ -433,9 +450,23 @@ end
     Us::NTuple{N,T_U},
     info::Tuple{Val{i_T},Val{i_Us}},
 ) where {N,T_U,i_T,i_Us}
+    Ttype = eltype(T)
+    ainds = ordered_inds((i_T, i_Us...))
     rightside =
         Expr(:call, :*, :(T[$(i_T...)]), (:(conj(Us[$i])[$(i_Us[i]...)]) for i = 1:N)...)
-    return :(@tensor new_S[:] := $rightside; S.tensor = new_S / norm(new_S))
+    return quote
+        sizes = size.([T, Us...])
+        outsize = _map_sizes($ainds, sizes)
+        if outsize == size(S.tensor)
+            out = S.tensor
+        else
+            out = similar_from_structure(S.tensor, $Ttype, outsize)
+            S.tensor = out
+        end
+
+        @tensor S.tensor[:] = $rightside
+        S.tensor /= norm(S.tensor)
+    end
 end
 
 function deqr_site!(site::PESSSite{N}, q, U, perm) where {N}
