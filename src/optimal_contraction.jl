@@ -45,6 +45,10 @@ function ContractionSignature(tensorsizes::Vector{Vector{Int}}, indices)
     ContractionSignature(convert.(Vector{BigInt}, tensorsizes), indices)
 end
 
+# For dicts to properly work we need a hash
+Base.hash(c::ContractionSignature, h::UInt) = hash(c.tensorsizes,
+                                                hash(c.indices,
+                                                    hash(ContractionSignature,h)))
 
 Base.:(==)(c1::ContractionSignature, c2::ContractionSignature) =
     c1.indices == c2.indices && c1.tensorsizes == c2.tensorsizes
