@@ -23,7 +23,6 @@ export Simplex,
 
 # [[file:../SimpleUpdate.org::*gPESS][gPESS:2]]
 using LinearAlgebra: full!
-using Base: ReverseOrdering
 using StaticArrays
 using LinearAlgebra
 using TensorOperations
@@ -388,7 +387,6 @@ end
 end
 
 
-# Maybe use tensonr contraction to save permutation
 function eigsvd_trunc(T, inds, max_bond_rank, sv_cutoff)
     T_contr = eig_contraction(T, inds)
     out_size = size(T)[inds[3]]
@@ -571,7 +569,7 @@ function calc_simplex_braket(u::PESSUnitCell, n_simplex, cache::ContractionCache
     site_braket_contractions = [
         ((ns_a, i), (ns_b, i)) for
         (ns_a, ns_b, site, sind) in zip(ns_as, ns_bs, sites, S.siteinds) for
-        i in filter(i -> i != sind, 1:nsimps(site))
+        i in filter(!=(sind), 1:nsimps(site))
     ]
     open_a = vcat(
         [(ns_a, (nsimps(site) + 1,)) for (ns_a, site) in zip(ns_as, sites)],
