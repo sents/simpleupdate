@@ -3,6 +3,7 @@ using SimpleUpdate.Util
 import SimpleUpdate.Util: cached_similar_ordered_inds
 using cuTENSOR, CUDA
 using LinearAlgebra
+import TensorOperations: similar_from_structure
 
 Util.similar_atype(
     A::Type{<:CuArray},
@@ -15,7 +16,7 @@ Util.eigf(T::Hermitian{D,A}) where {D, A<:CuArray} = eigen(T)
 
 # Don't use caching for CUDA ops
 function cached_similar_ordered_inds(T, A::CuArray, sym, sizes, ainds)
-    structure = map(((i, tnum, tdim),)->sizes[tnum][tdim], ainds)
+    structure = map(((tnum, tdim),)->sizes[tnum][tdim], ainds)
     similar_from_structure(A, T, structure)
 end
 
