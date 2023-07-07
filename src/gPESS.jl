@@ -272,7 +272,7 @@ function simple_update(
         simplex_Δs_trunc = Vector{Float64}[]
         for (op, info, simplex) in zip(eops, bond_infos, u.simplices)
             d, Δs_trunc = simple_update_step!(
-                u.sites[collect(simplex.sites)],
+                Tuple(u.sites[collect(simplex.sites)]),
                 simplex,
                 op,
                 info,
@@ -306,7 +306,7 @@ A single PESS simple update step on a single simplex consisting of:
 - Reemitting the environment contracted in the first step
 """
 function simple_update_step!(
-    sites::Vector{PESSSite{<:Any,T1,T2}},
+    sites::NTuple{N, PESSSite{<:Any,T1,T2}},
     S::Simplex{M,N,T1,A},
     op,
     info,
@@ -314,18 +314,15 @@ function simple_update_step!(
     sv_cutoff,
 ) where {T1,T2,N,M,A}
     Ttype = stripN(A)
-    qs = Ttype[]
-    rs = Ttype[]
-    for (i, site) in enumerate(sites)
-        contract_env!(site, info.env_inds[i])
-        q, r = qr_site(site, info.qr_perms[i])
-        push!(qs, q)
-        push!(rs, r)
-    end
+    qs, rs = zip(ntuple(i->
+    begin
+        contract_env!(sites[i], info.env_inds[i])
+        qr_site(sites[i], info.qr_perms[i])
+    end, length(sites))...)
 
-    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)::Ttype
+    T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)
 
-    Us = Ttype[]
+    Us = Ttype{3}[]
 
     step_diff = 0.0
     Δs_trunc = T2[]
@@ -393,7 +390,7 @@ end
             $Ttype,
             S,
             $(syms)[1], # Workaround for https://github.com/JuliaLang/julia/issues/23809
-            size.([op, S, rs...]),
+            size.((op, S, rs...)),
             $ainds
         )
         @tensor out[:] = $rightside

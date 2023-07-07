@@ -209,6 +209,8 @@ function cached_similar_ordered_inds(T, A, sym, sizes, ainds)
         C::type = get!(cache, key) do
             similar_from_structure(A, T, structure)
         end
+    else
+        C = similar_from_structure(A, T, structure)
     end
     return C
 end
