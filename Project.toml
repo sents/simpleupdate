@@ -15,9 +15,8 @@ CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 cuTENSOR = "011b41b2-24ef-40a8-b3eb-fa098493e9e1"
 
 [extensions]
-SimpleUpdate_CUDA = ["CUDA", "cuTENSOR", "TensorOperations"]
+SimpleUpdate_CUDA = ["CUDA", "cuTENSOR"]
 
 [compat]
-TensorOperations = "3.2.5"
-julia = "1.9"
 CUDA = "4"
+julia = "1.9"
