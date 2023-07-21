@@ -663,6 +663,21 @@ end
 
 function pess_unitcell_from_ordered_structurematrix(
     m::AbstractMatrix{Int},
+    simplex_dim::Int,
+    pdim::Int,
+    initt,
+    initv,
+)
+    simplex_dims = [ntuple(i->simplex_dim, count(!=(0), scol))
+        for scol in eachcol(m)]
+    pdims = [pdim for _ in 1:size(m)[1]]
+    return pess_unitcell_from_ordered_structurematrix(
+        m, simplex_dims, pdims, initt, initv
+    )
+end
+
+function pess_unitcell_from_ordered_structurematrix(
+    m::AbstractMatrix{Int},
     simplex_dims,
     pdims,
     initt,
@@ -696,7 +711,7 @@ function pess_unitcell_from_ordered_structurematrix(
         PESSSite(initt(Tuple(dims)), Tuple(initv.(dims[1:end-1]))) for dims in sitedims
     ]
     simplices = (Simplex{M,N,T1} where {M,N})[
-        let sdims = simplex_dims[i]
+        let sdims = simplex_dims[i] |> collect
             i_site_for_simplex =
                 filter(i_s -> count(!=(0), m[i_s, :]) > 1, findall(scol .!= 0))
             simplex_site_inds = scol[i_site_for_simplex]
