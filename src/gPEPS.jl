@@ -10,7 +10,7 @@ export Site,
     calc_1site_ev,
     calc_2site_ev,
     normalized_1site_ops,
-    unitcell_from_structurematrix,
+    peps_unitcell_from_structurematrix,
     PEPS_SU_LogStep,
     PEPSModel,
     register!,
@@ -486,7 +486,7 @@ function normalized_1site_ops(op, u::UnitCell)
     ]
 end
 
-function unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
+function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
     bonds = Bond[]
     sitedims = [
         let bondinds = findall(siterow .!= 0)
@@ -507,8 +507,16 @@ function unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), i
 
     return UnitCell(sites, bonds)
 end
-unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
-    unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
+
+peps_unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
+    peps_unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
+
+peps_unitcell_from_structurematrix(M, bonddim::Int, pdim::Int, initf=rand) = let
+    pdims = fill(pdim, size(M)[1])
+    bonddims = fill(bonddim, size(M)[2])
+    in
+    peps_unitcell_from_structurematrix(M, bonddims, pdims, initf)
+    end
 # gPEPS:2 ends here
 
 # [[file:../SimpleUpdate.org::*gPEPS][gPEPS:3]]
