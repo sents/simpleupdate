@@ -14,7 +14,6 @@ export Simplex,
     nsimps,
     psize,
     show,
-    normalized_ops,
     pess_unitcell_from_ordered_structurematrix,
     register!,
     static_pess_su_info,
@@ -811,7 +810,7 @@ function register!(model::PESSModel, ops::Vector{Operator}, name)
     model.observables[name] = ops
 end
 
-function normalized_ops(
+function Operators.normalized_ops(
     ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A},
     u::PESSUnitCell,
     m_connect,
@@ -849,9 +848,12 @@ function normalized_ops(
     ]
 end
 
-normalized_ops(ops::Dict{Tuple{Int},Operator{T,1,A}} where {T,A}, model::PESSModel) =
-    normalized_1site_ops(ops, model.unitcell, model.sitetypes)
-normalized_ops(ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A}, model::PESSModel) =
+Operators.normalized_ops(
+    ops::Dict{Tuple{Int},Operator{T,1,A}} where {T,A},
+    model::PESSModel) = normalized_1site_ops(ops, model.unitcell, model.sitetypes)
+Operators.normalized_ops(
+    ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A},
+    model::PESSModel) =
     normalized_ops(
         ops,
         model.unitcell,
@@ -860,8 +862,6 @@ normalized_ops(ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A}, model::PES
         model.sitetypes,
         model.interactions,
     )
-normalized_ops(op::Operator{T,N,A}, model::PESSModel) where {T,N,A} =
-    normalized_ops(Dict{NTuple{N,Int},Operator{T,N,A}}(ntuple(_ -> 1, Val(N)) => op), model)
 
 function per_site_energy(model::PESSModel, cache)
     nsites = length(model.unitcell.sites)

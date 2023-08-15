@@ -1,6 +1,7 @@
 # [[file:../SimpleUpdate.org::*Operator][Operator:1]]
 module Operators
-export AbstractOperator, Operator, exp, +, *, ⊗, nsite_op
+export AbstractOperator, Operator, exp, +, *, ⊗, nsite_op,
+    normalized_ops
 # Operator:1 ends here
 
 # [[file:../SimpleUpdate.org::*Operator][Operator:2]]
@@ -88,6 +89,14 @@ function nsite_op(op::Operator{T}, inds, dims) where {T}
     )
     Operator(ncon((op.tensor, I_op), ([op_left; op_right] .* -1, [I_left; I_right] .* -1)))
 end
+
+
+function normalized_ops(op::Operator{T,N,A}, model) where {T,N,A}
+    normalized_ops(
+        Dict{NTuple{N,Int},Operator{T,N,A}}(ntuple(_ -> 1, Val(N)) => op),
+        model)
+end
+
 # Operator:2 ends here
 
 # [[file:../SimpleUpdate.org::*Operator][Operator:3]]

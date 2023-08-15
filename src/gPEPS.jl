@@ -9,7 +9,6 @@ export Site,
     simple_update,
     calc_1site_ev,
     calc_2site_ev,
-    normalized_1site_ops,
     peps_unitcell_from_structurematrix,
     PEPS_SU_LogStep,
     PEPSModel,
@@ -479,11 +478,38 @@ function simple_update(
     return logger
 end
 
-function normalized_1site_ops(op, u::UnitCell)
+I_func(size, T) = (I*one(T))(size) |> collect
+
+function Operators.normalized_ops(
+    ops::Dict{Tuple{Int,Int},Operator{T,2,A}} where {T,A},
+    model::PEPSModel
+)
     [
-        (op ⊗ I(size(u.sites[bond.B].tensor)[end])) / nbonds(u, bond.A) .+
-        (I(size(u.sites[bond.A].tensor)[end]) ⊗ op) / nbonds(u, bond.B) for bond in u.bonds
+    let
+        op_id = (model.sitetypes[bond.A],
+                 model.sitetypes[bond.B]) |> collect |> sort |> Tuple
+        op = ops[op_id]
+        op
+    end
+    for bond in model.unitcell.bonds
     ]
+end
+
+function Operators.normalized_ops(
+    ops::Dict{Tuple{Int},Operator{T,1,A}} where {T,A},
+    model::PEPSModel{T1,T2},
+) where {T1,T2}
+    u = model.unitcell
+    [
+        let
+            opA = ops[(model.sitetypes[bond.A],)]
+            opB = ops[(model.sitetypes[bond.B],)]
+            (opA.tensor ⊗ I_func(size(u.sites[bond.B].tensor)[end], T1)) /
+            nbonds(u, bond.A) .+
+            (I_func(size(u.sites[bond.A].tensor)[end], T1) ⊗ opB.tensor) /
+            nbonds(u, bond.B)
+        end for bond in u.bonds
+    ] .|> Operator
 end
 
 function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
