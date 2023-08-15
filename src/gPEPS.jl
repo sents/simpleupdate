@@ -20,6 +20,7 @@ export Site,
 # [[file:../SimpleUpdate.org::*gPEPS][gPEPS:2]]
 using LinearAlgebra
 using TensorOperations
+using StaticArrays
 
 """
     Site{T <: AbstractArray}
@@ -141,6 +142,7 @@ function auxbonds(bonds, sitenum, bondnum)
 end
 
 nbonds(u::UnitCell, sitenum) = count(involved.(sitenum, u.bonds))
+nbonds(::Site{T,A}) where {N, T,A<:AbstractArray{N,T}} = N-1
 
 """    ind(b::Bond, i)
 Helper function to get the Bond indice of a bond b.
@@ -181,11 +183,11 @@ function static_simpleupdate_info(
     shaperea = shape_to_last.(indsrea)
     shapereb = shape_to_last.(indsreb)
 
-    qrpermA = moveind!(collect(1:N1), bond.Aind, N1)
-    qrpermB = moveind!(collect(1:N2), bond.Bind, N2)
+    qrpermA = SVector{N1}(moveind!(collect(1:N1), bond.Aind, N1))
+    qrpermB = SVector{N2}(moveind!(collect(1:N2), bond.Bind, N2))
 
-    permA = moveind!(collect(1:N1), N1, bond.Aind)
-    permB = moveind!(collect(1:N2), N2, bond.Bind)
+    permA = SVector{N1}(moveind!(collect(1:N1), N1, bond.Aind))
+    permB = SVector{N2}(moveind!(collect(1:N2), N2, bond.Bind))
 
     return (
         auxA=shapeauxa |> Val ∘ Tuple,
