@@ -65,8 +65,6 @@ mutable struct Bond{T<:AbstractVector}
     Bind::Int
 end
 
-Base.show(io::IO, b::Bond{T}) where {T} =
-    print(io, "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
 """
     UnitCell(sites, bonds)
 
@@ -96,6 +94,30 @@ struct PEPSModel
         )
     end
 end
+
+Base.show(io::IO, s::Site{N,T1,T2}) where {N,T1,T2} =
+    print(io, "Site{$N,$T1,$T2}: $(size(s.tensor))")
+
+Base.show(io::IO, b::Bond{T}) where {T} =
+    print(io, "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
+
+Base.show(io::IO, u::UnitCell) where {T1,T2} = print(
+    io,
+    "PEPSUnitCell: $(length(u.sites)) sites, $(length(u.bonds)) bonds",
+)
+
+Base.show(io::IO, m::PEPSModel{T1,T2}) where {T1,T2} = print(
+    io,
+    "PEPSModel: ",
+    length(m.unitcell.sites),
+    " sites, ",
+    "$(length(m.unitcell.bonds)) bonds\n",
+    "Number of sitetypes: ",
+    length(m.sitetypes |> unique),
+    "\n",
+    "Defined observables: ",
+    join(string.(keys(m.observables)), ", "),
+)
 
 function register!(model::PEPSModel, ops, name)
     model.observables[name] = convert(Vector{Site2Operator}, ops)
