@@ -25,11 +25,11 @@ using TensorOperations
     Site{T <: AbstractArray}
 Represents a site in a PEPS state.
 
-Holds the site `tensor` a `N` dimensional array. The first `N-1` dimensions describe
+Holds the site `tensor` a `N+1` dimensional array. The first `N-1` dimensions describe
 virtual (or bond) dimensions. The `N`th dimension is the physical dimension.
 """
-mutable struct Site{T<:AbstractArray}
-    tensor::T
+mutable struct Site{T, A<:AbstractArray{T}}
+    tensor::A
 end
 
 
@@ -56,8 +56,8 @@ of Site A or B that the Bond binds to.
 
 `tensor` has two indices. The first binding to `Aind` of `A` and the second to `Bind` of
 `B`.  """
-mutable struct Bond{T<:AbstractVector}
-    vector::T
+mutable struct Bond{T, A<:AbstractVector{T}}
+    vector::A
     A::Int
     B::Int
     Aind::Int
@@ -72,21 +72,21 @@ sites is a `Vector` of `Site`s describing the sites in the `UnitCell`. The order
 sites in the Vector is important. `bonds` is a Vector of `Bond`s describing all the
 bonds necessary to cover the lattice.
 """
-struct UnitCell
-    sites::Vector{Site}
-    bonds::Vector{Bond}
+struct UnitCell{T1,T2,A}
+    sites::Vector{Site{T1}}
+    bonds::Vector{Bond{T2,A}}
 end
 
-struct PEPSModel
-    unitcell :: UnitCell
+struct PEPSModel{T1,T2}
+    unitcell :: UnitCell{T1,T2}
     sitetypes::Vector{Int}
     observables::Dict{Symbol,Vector{Site2Operator}}
     function PEPSModel(
-        unitcell::UnitCell,
+        unitcell::UnitCell{T1,T2},
         sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
         observables=Dict()
-    )
-        new(
+    ) where {T1,T2}
+        new{T1,T2}(
             unitcell,
             sitetypes,
             convert(Dict{Symbol,Vector{Site2Operator}}, observables)
@@ -94,20 +94,20 @@ struct PEPSModel
     end
 end
 
-Base.show(io::IO, s::Site{N,T1,T2}) where {N,T1,T2} =
-    print(io, "Site{$N,$T1,$T2}: $(size(s.tensor))")
+Base.show(io::IO, s::Site{T,A}) where {T,A} =
+    print(io, "Site{$T,$A}: $(size(s.tensor))")
 
-Base.show(io::IO, b::Bond{T}) where {T} =
-    print(io, "Bond{$(repr(T))}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
+Base.show(io::IO, b::Bond{T,A}) where {T,A} =
+    print(io, "Bond{$T,$A}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
 
-Base.show(io::IO, u::UnitCell) where {T1,T2} = print(
+Base.show(io::IO, u::UnitCell{T1,T2}) where {T1,T2} = print(
     io,
-    "PEPSUnitCell: $(length(u.sites)) sites, $(length(u.bonds)) bonds",
+    "PEPSUnitCell{$T1,$T2}: $(length(u.sites)) sites, $(length(u.bonds)) bonds",
 )
 
 Base.show(io::IO, m::PEPSModel{T1,T2}) where {T1,T2} = print(
     io,
-    "PEPSModel: ",
+    "PEPSModel{$T1,$T2}: ",
     length(m.unitcell.sites),
     " sites, ",
     "$(length(m.unitcell.bonds)) bonds\n",
@@ -157,8 +157,8 @@ The information is returned as a NamedTuple. Some of the values contain value ty
     dispatch generated functions.
 """
 function static_simpleupdate_info(
-    A::Site{S1},
-    B::Site{S2},
+    A::Site{T,S1},
+    B::Site{T,S2},
     bond,
     auxbonds_A,
     auxbonds_B,
@@ -250,8 +250,8 @@ end
 Simple update step for a single 2-site operator.
 """
 function simple_update_step!(
-    A::Site{S1},
-    B::Site{S2},
+    A::Site{T,S1},
+    B::Site{T,S2},
     op::Site2Operator,
     bond,
     contraction_info,
@@ -424,8 +424,9 @@ function simple_update(
 )
     bondinfo = [simple_update_information(u, i) for (i, _) in enumerate(ops)]
     it = 0
+    l0 = length(logger.log)
     τ = τ₀
-    while τ >= min_τ
+    while τ >= min_τ && (it < maxit || maxit < 0)
         println("τ: ", τ)
         simple_update(
             u,
@@ -438,7 +439,7 @@ function simple_update(
             maxit=maxit - it,
             logger=logger,
         )
-        it += length(logger.log)
+        it = length(logger.log) - l0
         τ /= 10
     end
     return logger
@@ -456,7 +457,8 @@ function simple_update(
     logger=nothing,
 )
     eops = [exp(-τ * op) for op in ops]
-    for it = 1:maxit
+    it = 0
+    while it < maxit || maxit < 0
         diff = 0.0
         for (op, info, bond) in zip(eops, bondinfo, u.bonds)
             d = simple_update_step!(
@@ -474,6 +476,7 @@ function simple_update(
         if diff < convergence
             return logger
         end
+        it += 1
     end
     return logger
 end
