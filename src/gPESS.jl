@@ -312,7 +312,6 @@ function simple_update_step!(
     max_bond_rank,
     sv_cutoff,
 ) where {T1,T2,N,M,A}
-    Ttype = stripN(A)
     qs, rs = zip(ntuple(i->
     begin
         contract_env!(sites[i], info.env_inds[i])
@@ -321,7 +320,7 @@ function simple_update_step!(
 
     T = contract_op(op.tensor, S.tensor, tuple(rs...), info.contract_op)
 
-    Us = Ttype{3}[]
+    Us = n_array_type(A,Val(3))[]
 
     step_diff = 0.0
     Δs_trunc = T2[]
@@ -356,7 +355,7 @@ function qr_site(site::PESSSite{N, T1, T2, M}, perm) where {N, T1, T2, M}
     A_reshaped = reshape(permutedims(site.tensor, perm), (prod(sA_q), prod(sA_r)))
     q, r = qr(A_reshaped)
     r_reshaped = reshape(r, (sA_qr, sA_r...))
-    return stripN(M){2}(q), r_reshaped
+    return n_array_type(M, Val(2))(q), r_reshaped
 end
 
 function contract_env!(site::PESSSite, inds)

@@ -11,7 +11,7 @@ export ncon_indices,
     tile_structurematrix_with_origin,
     make_ordered_structurematrix,
     connection_matrix_from_connections,
-    stripN,
+    n_array_type,
     similar_atype,
     eigf
 # Util:1 ends here
@@ -191,8 +191,7 @@ end
 basetype(T::Type) = T.name.wrapper
 
 "Strip dimension Parameter from AbstractArray"
-stripN(::A) where {T,N,A<:AbstractArray{T,N}} = basetype(A){T}
-stripN(A::Type{<:AbstractArray{T,N}}) where {T,N} = basetype(A){T}
+n_array_type(A::Type{<:AbstractArray{T,N}}, ::Val{M}) where {T,N,M} = basetype(A){T,M}
 
 similar_atype(A,N=A.parameters[2],T=A.parameters[1])=basetype(A){T,N}
 

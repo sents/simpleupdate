@@ -29,4 +29,6 @@ function Base.exp(A::Operator{T,N,Arr}) where {T,N,Arr<:CuArray}
     return Operator(reshape(retmat, s))
 end
 
+Util.n_array_type(A::Type{CuArray{T,N,D}}, ::Val{M}) where {T,N,D,M} = CuArray{T,M,D}
+
 end
