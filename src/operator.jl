@@ -36,18 +36,6 @@ function Base.:*(a::Number, b::Operator)
     return Operator(a .* b.tensor)
 end
 
-if Base.PkgId(Base.UUID("052768ef-5323-5732-b1bb-66c8b64840ba"), "CUDA") ∈
-   keys(Base.loaded_modules)
-    import LinearAlgebra: Hermitian
-    import CUDA: CuArray
-    function Base.exp(A::Operator{T,N,Arr}) where {T,N,Arr<:CuArray}
-        s = size(A.tensor)
-        F = eigen(Hermitian(reshape(A.tensor, (prod(s[1:N]), prod(s[N+1:2N])))))
-        retmat = (F.vectors * Diagonal(exp.(F.values))) * F.vectors'
-        retmat -= Diagonal(imag(diag(retmat)) * im)
-        return Operator(reshape(retmat, s))
-    end
-end
 
 ⊗(a::AbstractArray{T1,2}, b::AbstractArray{T2,2}) where {T1,T2} =
     @tensor c[i, j, k, l] := a[i, k] * b[j, l]

@@ -1,5 +1,6 @@
 module SimpleUpdate_CUDA
 using SimpleUpdate.Util
+using SimpleUpdate.Operators
 import SimpleUpdate.Util: cached_similar_ordered_inds
 using cuTENSOR, CUDA
 using LinearAlgebra
@@ -18,6 +19,14 @@ Util.eigf(T::Hermitian{D,A}) where {D, A<:CuArray} = eigen(T)
 function cached_similar_ordered_inds(T, A::CuArray, sym, sizes, ainds)
     structure = map(((tnum, tdim),)->sizes[tnum][tdim], ainds)
     similar_from_structure(A, T, structure)
+end
+
+function Base.exp(A::Operator{T,N,Arr}) where {T,N,Arr<:CuArray}
+    s = size(A.tensor)
+    F = eigen(Hermitian(reshape(A.tensor, (prod(s[1:N]), prod(s[N+1:2N])))))
+    retmat = (F.vectors * Diagonal(exp.(F.values))) * F.vectors'
+    retmat -= Diagonal(imag(diag(retmat)) * im)
+    return Operator(reshape(retmat, s))
 end
 
 end
