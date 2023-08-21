@@ -289,7 +289,7 @@ function simple_update_step!(
     R_Br = reshape(R_B, (sA_qr, sB_bond...))
 
     # Optimal for D>=d²
-    @tensor S[:] := R_Ar[-1, 2, 1] * R_Br[-3, 3, 1] * op.tensor[2, 3, -2, -4]
+    @ctensor S[:] := R_Ar[-1, 2, 1] * R_Br[-3, 3, 1] * op.tensor[2, 3, -2, -4]
 
     S_r = reshape(S, (sA_qr * p_A, sB_qr * p_B))
     F = svd!(S_r) # maybe Lancos TSVD?

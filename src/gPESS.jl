@@ -373,9 +373,6 @@ end
     rs::NTuple{N,T_Site},
     info::Tuple{Val{i_op},Val{i_S},Val{i_rs}},
 ) where {N,T_Site,i_op,i_S,i_rs}
-    Ttype = eltype(S)
-    syms = (gensym(),)
-    ainds = ordered_inds((i_op, i_S, i_rs...))
     rightside = Expr(
         :call,
         :*,
@@ -384,14 +381,7 @@ end
         (:(rs[$i][$(i_rs[i]...)]) for i = 1:N)...,
     )
     return quote
-        out = cached_similar_ordered_inds(
-            $Ttype,
-            S,
-            $(syms)[1], # Workaround for https://github.com/JuliaLang/julia/issues/23809
-            size.((op, S, rs...)),
-            $ainds
-        )
-        @tensor out[:] = $rightside
+        @ctensor out[:] := $rightside
     end
 end
 

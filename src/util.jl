@@ -13,7 +13,8 @@ export ncon_indices,
     connection_matrix_from_connections,
     n_array_type,
     similar_atype,
-    eigf
+    eigf,
+    @ctensor
 # Util:1 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:2]]
@@ -227,6 +228,37 @@ ordered_inds(tensors_inds) = getindex.(
         by=i -> -i[1]),
     Ref(2:3)
 ) |> Tuple
+
+
+function _ex_out(ex)
+    if (ex.head == :call && ex.args[1] == :*)
+        return map(_ex_out, ex.args[2:end])
+    elseif (ex.head == :ref)
+        return (ex.args[1], ex.args[2:end])
+    end
+end
+
+macro ctensor(ex)
+    ex.head != :(:=) && return :(error("Called cten without := assignment"))
+    ex.args[1].args[2] != :(:) && return :(error("For now only ncon indices in the input tensors are supported!"))
+    name_out = ex.args[1].args[1]
+    inputs = _ex_out(ex.args[2])
+    in_inds = Tuple(Tuple.(getindex.(inputs,2)))
+    onames = Tuple(getindex.(inputs,1))
+    oinds = Util.ordered_inds(in_inds)
+    ex_size = :(size.(($((o for o in onames)...),)))
+    ex_etype = :(promote_type(eltype.(( $((o for o in onames)...),))...))
+    sym = gensym()
+    eex = Expr(:(=), ex.args...)
+    quote
+        $name_out = Util.cached_similar_ordered_inds($(onames[1]),
+            $ex_etype,
+            $(QuoteNode(sym)),
+            $ex_size,
+            $oinds)
+        @tensor $eex
+    end |> esc
+end
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]
