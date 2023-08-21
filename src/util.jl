@@ -197,8 +197,9 @@ similar_atype(A,N=A.parameters[2],T=A.parameters[1])=basetype(A){T,N}
 
 eigf(T) = eigen!(T)
 
-function cached_similar_ordered_inds(T, A, sym, sizes, ainds)
-    structure = map(((tnum, tdim),)->sizes[tnum][tdim], ainds)
+
+function cached_similar_ordered_inds(A, T, sym, sizes, o_from_i_inds)
+    structure = map(((tnum, tdim),)->sizes[tnum][tdim], o_from_i_inds)
     if use_cache()
         type = Core.Compiler.return_type(
             similar,
@@ -214,15 +215,18 @@ function cached_similar_ordered_inds(T, A, sym, sizes, ainds)
     return C
 end
 
-ordered_inds(tinds) = getindex.(
+# Takes tuple of ncon indices, returns tuple of tuples (intensor, intensor_ind) in order
+# of dimensions in the resulting tensor
+ordered_inds(tensors_inds) = getindex.(
     sort(reduce(vcat,
-            ([
-                [(ind,tnum,tdim) for (tdim,ind) in enumerate(tind) if ind<0]
-            for (tnum, tind) in enumerate(tinds)])
-        );
-        by=i->-i[1]),
+        [
+        [(ncon_ind,tensor_num,tensor_ind) for (tensor_ind, ncon_ind)
+         in enumerate(tensor_inds) if ncon_ind<0]
+        for (tensor_num, tensor_inds) in enumerate(tensors_inds)]
+    );
+        by=i -> -i[1]),
     Ref(2:3)
-    ) |> Tuple
+) |> Tuple
 # Util:2 ends here
 
 # [[file:../SimpleUpdate.org::*Util][Util:3]]

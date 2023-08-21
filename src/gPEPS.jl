@@ -242,8 +242,8 @@ end
     op::AbstractArray{T,O},
     order_A::Val{K},
 ) where {T,N,M,O,K}
-    leftside = Expr(:call, :*, :(A[$(K.A...)]), :(B[$(K.B...)]), :(op[$(K.op...)]))
-    return :(@tensor S[:] := $leftside)
+    rightside = Expr(:call, :*, :(A[$(K.A...)]), :(B[$(K.B...)]), :(op[$(K.op...)]))
+    return :(@tensor S[:] := $rightside)
 end
 
 """
