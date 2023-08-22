@@ -518,7 +518,9 @@ function Operators.normalized_ops(
     ] .|> Operator
 end
 
-function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]), initf=rand)
+function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1]),
+    initt=rand,
+    initv=ones)
     bonds = Bond[]
     sitedims = [
         let bondinds = findall(siterow .!= 0)
@@ -528,26 +530,30 @@ function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1
             ]
         end for (i, siterow) in enumerate(eachrow(M))
     ]
-    sites = [PEPSSite(initf(ComplexF64, sdims...)) for sdims in sitedims]
+    sites = [PEPSSite(initt(Tuple(sdims))) for sdims in sitedims]
     bonds = [
         let bdim = bonddims[i]
             sitenums = findall(bondcol .!= 0)
             siteinds = bondcol[sitenums]
-            Bond(initf(bdim), sitenums..., siteinds...)
+            Bond(initv((bdim,)), sitenums..., siteinds...)
         end for (i, bondcol) in enumerate(eachcol(M))
     ]
 
     return PEPSUnitCell(sites, bonds)
 end
 
-peps_unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
-    peps_unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]), initf)
+peps_unitcell_from_structurematrix(M, bonddims, pdim::Int,
+    initt=rand, initv=ones) =
+    peps_unitcell_from_structurematrix(M, bonddims, fill(pdim, size(M)[1]),
+        initt, initv)
 
-peps_unitcell_from_structurematrix(M, bonddim::Int, pdim::Int, initf=rand) = let
+peps_unitcell_from_structurematrix(M, bonddim::Int, pdim::Int,
+    initt=rand, initv=ones) = let
     pdims = fill(pdim, size(M)[1])
     bonddims = fill(bonddim, size(M)[2])
     in
-    peps_unitcell_from_structurematrix(M, bonddims, pdims, initf)
+        peps_unitcell_from_structurematrix(M, bonddims, pdims,
+            initt, initv)
     end
 # gPEPS:2 ends here
 

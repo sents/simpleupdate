@@ -14,7 +14,7 @@ export Simplex,
     virtualsiteinds,
     nsimps,
     psize,
-    pess_unitcell_from_ordered_structurematrix,
+    pess_unitcell_from_structurematrix,
     register!,
     static_pess_su_info,
     per_site_energy,
@@ -638,14 +638,14 @@ function unitcell_from_simplices(
     PESSUnitCell(sites, Ss)
 end
 
-function pess_unitcell_from_structurematrix(
+function pess_unitcell_from_unordered_structurematrix(
     m::AbstractMatrix{Int},
     simplex_dims,
     pdims,
     initt,
     initv,
 )
-    pess_unitcell_from_ordered_structurematrix(
+    pess_unitcell_from_structurematrix(
         make_ordered_structurematrix(m),
         simplex_dims,
         pdims,
@@ -654,7 +654,7 @@ function pess_unitcell_from_structurematrix(
     )
 end
 
-function pess_unitcell_from_ordered_structurematrix(
+function pess_unitcell_from_structurematrix(
     m::AbstractMatrix{Int},
     simplex_dim::Int,
     pdim::Int,
@@ -664,12 +664,12 @@ function pess_unitcell_from_ordered_structurematrix(
     simplex_dims = [ntuple(i->simplex_dim, count(!=(0), scol))
         for scol in eachcol(m)]
     pdims = [pdim for _ in 1:size(m)[1]]
-    return pess_unitcell_from_ordered_structurematrix(
+    return pess_unitcell_from_structurematrix(
         m, simplex_dims, pdims, initt, initv
     )
 end
 
-function pess_unitcell_from_ordered_structurematrix(
+function pess_unitcell_from_structurematrix(
     m::AbstractMatrix{Int},
     simplex_dims,
     pdims,
