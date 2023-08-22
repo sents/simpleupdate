@@ -1,5 +1,6 @@
 # [[file:../SimpleUpdate.org::*gPESS][gPESS:1]]
 module gPESS
+import ..Interface: register!, simple_update, per_site_energy
 using ..OptimalContraction
 using ..Operators
 using ..Util
@@ -13,7 +14,6 @@ export Simplex,
     virtualsiteinds,
     nsimps,
     psize,
-    show,
     pess_unitcell_from_ordered_structurematrix,
     register!,
     static_pess_su_info,
@@ -254,7 +254,7 @@ function simple_update(
 end
 
 function simple_update(
-    u,
+    u::PESSUnitCell,
     ops,
     bond_infos,
     τ;

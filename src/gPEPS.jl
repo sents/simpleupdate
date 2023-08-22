@@ -1,5 +1,6 @@
 # [[file:../SimpleUpdate.org::*gPEPS][gPEPS:1]]
 module gPEPS
+import ..Interface: register!, simple_update, per_site_energy
 using ..Util
 using ..Operators
 export PEPSSite,
