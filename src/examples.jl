@@ -35,7 +35,7 @@ spin_1site(μ) = -μ * s_z
 
 ising_2site(J) = -J * (σ_z / 2 ⊗ σ_z / 2)
 
-ising_ops(u::UnitCell, J, μ) = [
+ising_ops(u::PEPSUnitCell, J, μ) = [
     Site2Operator(ising_2site(J)) + Site2Operator(site1_op) for
     site1_op in normalized_1site_ops(spin_1site(μ), u)
 ]

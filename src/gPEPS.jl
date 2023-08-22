@@ -2,10 +2,10 @@
 module gPEPS
 using ..Util
 using ..Operators
-export Site,
+export PEPSSite,
     Site2Operator,
     Bond,
-    UnitCell,
+    PEPSUnitCell,
     simple_update,
     calc_1site_ev,
     calc_2site_ev,
@@ -29,7 +29,7 @@ Represents a site in a PEPS state.
 Holds the site `tensor` a `N+1` dimensional array. The first `N-1` dimensions describe
 virtual (or bond) dimensions. The `N`th dimension is the physical dimension.
 """
-mutable struct Site{T, A<:AbstractArray{T}}
+mutable struct PEPSSite{T, A<:AbstractArray{T}}
     tensor::A
 end
 
@@ -50,10 +50,10 @@ const Site2Operator = Operator{T,2} where {T}
 """
     Bond(vector, A, B, Aind, Bind)
 
-Holds information about bonds between two PEPS sites in the context of a `UnitCell`.
+Holds information about bonds between two PEPS sites in the context of a `PEPSUnitCell`.
 `tensor` is the simple update bond tensor.  `A` is the index of the first `Site` of the
-Bond as ordered in the `UnitCell`, `B` is the second. `Aind` and `Bind` are the indices
-of Site A or B that the Bond binds to.
+Bond as ordered in the `PEPSUnitCell`, `B` is the second. `Aind` and `Bind` are the
+indices of Site A or B that the Bond binds to.
 
 `tensor` has two indices. The first binding to `Aind` of `A` and the second to `Bind` of
 `B`.  """
@@ -66,24 +66,24 @@ mutable struct Bond{T, A<:AbstractVector{T}}
 end
 
 """
-    UnitCell(sites, bonds)
+    PEPSUnitCell(sites, bonds)
 
 A unit cell of a iPEPS tensor network.
-sites is a `Vector` of `Site`s describing the sites in the `UnitCell`. The order of
+sites is a `Vector` of `Site`s describing the sites in the `PEPSUnitCell`. The order of
 sites in the Vector is important. `bonds` is a Vector of `Bond`s describing all the
 bonds necessary to cover the lattice.
 """
-struct UnitCell{T1,T2,A}
-    sites::Vector{Site{T1}}
+struct PEPSUnitCell{T1,T2,A}
+    sites::Vector{PEPSSite{T1}}
     bonds::Vector{Bond{T2,A}}
 end
 
 struct PEPSModel{T1,T2}
-    unitcell :: UnitCell{T1,T2}
+    unitcell :: PEPSUnitCell{T1,T2}
     sitetypes::Vector{Int}
     observables::Dict{Symbol,Vector{Site2Operator}}
     function PEPSModel(
-        unitcell::UnitCell{T1,T2},
+        unitcell::PEPSUnitCell{T1,T2},
         sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
         observables=Dict()
     ) where {T1,T2}
@@ -95,13 +95,13 @@ struct PEPSModel{T1,T2}
     end
 end
 
-Base.show(io::IO, s::Site{T,A}) where {T,A} =
+Base.show(io::IO, s::PEPSSite{T,A}) where {T,A} =
     print(io, "Site{$T,$A}: $(size(s.tensor))")
 
 Base.show(io::IO, b::Bond{T,A}) where {T,A} =
     print(io, "Bond{$T,$A}[$(length(b.vector))]($(b.A),$(b.B),$(b.Aind),$(b.Bind))")
 
-Base.show(io::IO, u::UnitCell{T1,T2}) where {T1,T2} = print(
+Base.show(io::IO, u::PEPSUnitCell{T1,T2}) where {T1,T2} = print(
     io,
     "PEPSUnitCell{$T1,$T2}: $(length(u.sites)) sites, $(length(u.bonds)) bonds",
 )
@@ -141,8 +141,8 @@ function auxbonds(bonds, sitenum, bondnum)
     return bonds[involved.(sitenum, bonds).&&eachindex(bonds).!=bondnum]
 end
 
-nbonds(u::UnitCell, sitenum) = count(involved.(sitenum, u.bonds))
-nbonds(::Site{T,A}) where {N, T,A<:AbstractArray{N,T}} = N-1
+nbonds(u::PEPSUnitCell, sitenum) = count(involved.(sitenum, u.bonds))
+nbonds(::PEPSSite{T,A}) where {N, T,A<:AbstractArray{N,T}} = N-1
 
 """    ind(b::Bond, i)
 Helper function to get the Bond indice of a bond b.
@@ -159,8 +159,8 @@ The information is returned as a NamedTuple. Some of the values contain value ty
     dispatch generated functions.
 """
 function static_simpleupdate_info(
-    A::Site{T,S1},
-    B::Site{T,S2},
+    A::PEPSSite{T,S1},
+    B::PEPSSite{T,S2},
     bond,
     auxbonds_A,
     auxbonds_B,
@@ -206,7 +206,7 @@ end
 
 Calculate auxillary bonds and contraction information for a simple update step on bond
 of `bondnumber`"""
-function simple_update_information(u::UnitCell, bondnum)
+function simple_update_information(u::PEPSUnitCell, bondnum)
     bond = u.bonds[bondnum]
     iA = bond.A
     iB = bond.B
@@ -252,8 +252,8 @@ end
 Simple update step for a single 2-site operator.
 """
 function simple_update_step!(
-    A::Site{T,S1},
-    B::Site{T,S2},
+    A::PEPSSite{T,S1},
+    B::PEPSSite{T,S2},
     op::Site2Operator,
     bond,
     contraction_info,
@@ -327,7 +327,7 @@ function simple_update_step!(
     return step_diff
 end
 
-function calc_1site_BraKet(u::UnitCell, sitenum)
+function calc_1site_BraKet(u::PEPSUnitCell, sitenum)
     bonds = filter(bond -> involved(sitenum, bond), u.bonds)
     A = contract_bonds(
         u.sites[sitenum].tensor,
@@ -340,7 +340,7 @@ function calc_1site_BraKet(u::UnitCell, sitenum)
     return AA
 end
 
-function calc_2site_BraKet(u::UnitCell, alongbond)
+function calc_2site_BraKet(u::PEPSUnitCell, alongbond)
     bond = u.bonds[alongbond]
     A = u.sites[bond.A].tensor
     B = u.sites[bond.B].tensor
@@ -389,14 +389,14 @@ function calc_2site_BraKet(u::UnitCell, alongbond)
     return ABAB
 end
 
-function calc_1site_ev(u::UnitCell, op, sitenum)
+function calc_1site_ev(u::PEPSUnitCell, op, sitenum)
     AA = calc_1site_BraKet(u, sitenum)
     @tensor ev[] := AA[1, 2] * op[1, 2]
     @tensor AA_norm[] := AA[1, 1]
     return ev ./ AA_norm
 end
 
-function calc_2site_ev(u::UnitCell, op, alongbond)
+function calc_2site_ev(u::PEPSUnitCell, op, alongbond)
     ABAB = calc_2site_BraKet(u, alongbond)
     @tensor ev[] := ABAB[1, 2, 3, 4] * op.tensor[1, 2, 3, 4]
     @tensor ABAB_norm[] := ABAB[1, 2, 1, 2]
@@ -414,7 +414,7 @@ const PEPS_SU_LogStep = LogStep
 Iterated simple update of unit cell with one operator per bond
 """
 function simple_update(
-    u::UnitCell,
+    u::PEPSUnitCell,
     ops;
     τ₀=1.0,
     max_bond_rank=10,
@@ -448,7 +448,7 @@ function simple_update(
 end
 
 function simple_update(
-    u,
+    u::PEPSUnitCell,
     ops,
     bondinfo,
     τ;
@@ -527,7 +527,7 @@ function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1
             ]
         end for (i, siterow) in enumerate(eachrow(M))
     ]
-    sites = [Site(initf(ComplexF64, sdims...)) for sdims in sitedims]
+    sites = [PEPSSite(initf(ComplexF64, sdims...)) for sdims in sitedims]
     bonds = [
         let bdim = bonddims[i]
             sitenums = findall(bondcol .!= 0)
@@ -536,7 +536,7 @@ function peps_unitcell_from_structurematrix(M, bonddims, pdims=fill(2, size(M)[1
         end for (i, bondcol) in enumerate(eachcol(M))
     ]
 
-    return UnitCell(sites, bonds)
+    return PEPSUnitCell(sites, bonds)
 end
 
 peps_unitcell_from_structurematrix(M, bonddims, pdim::Int, initf=rand) =
