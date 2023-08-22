@@ -121,6 +121,7 @@ struct PESSModel{T1,T2,N}
     interactions::Vector{Tuple{NTuple{2,Int},NTuple{N,Int}}}
     sitetypes::Vector{Int}
     observables::Dict{Symbol,Vector{Operator{T1}}}
+    cache::ContractionCache
     function PESSModel(
         unitcell::PESSUnitCell{T1,T2},
         m_connect::AbstractMatrix{Int},
@@ -128,6 +129,7 @@ struct PESSModel{T1,T2,N}
         interactions::Vector{Tuple{NTuple{2,Int},NTuple{N,Int}}},
         sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
         observables=Dict(),
+        cache::ContractionCache=ContractionCache(),
     ) where {T1,T2,N}
         new{T1,T2,N}(
             unitcell,
@@ -136,6 +138,7 @@ struct PESSModel{T1,T2,N}
             interactions,
             sitetypes,
             convert(Dict{Symbol,Vector{Operator{T1}}}, observables),
+            cache
         )
     end
 end
@@ -147,6 +150,7 @@ function PESSModel(
     m_interactions::AbstractMatrix{Int},
     sitetypes::Vector{Int}=[1 for _ = 1:length(unitcell.sites)],
     observables=Dict(),
+    cache::ContractionCache=ContractionCache()
 ) where {T1,T2}
     PESSModel(
         unitcell,
@@ -155,6 +159,7 @@ function PESSModel(
         interactions_from_tiling(m_interactions, tile_pattern),
         sitetypes,
         convert(Dict{Symbol,Vector{Operator{T1}}}, observables),
+        cache
     )
 end
 
@@ -205,7 +210,7 @@ psize(site::PESSSite) = size(site.tensor)[end]
 Iterated simple update of unit cell with one operator per simplex
 """
 function simple_update(m::PESSModel; kwargs...)
-    simple_update(m.unitcell, m.observables[:H]; kwargs...)
+    simple_update(m.unitcell, m.observables[:H]; cache=m.cache, kwargs...)
 end
 
 const LogStep = @NamedTuple begin
@@ -852,10 +857,10 @@ Operators.normalized_ops(
         model.interactions,
     )
 
-function per_site_energy(model::PESSModel, cache)
+function per_site_energy(model::PESSModel)
     nsites = length(model.unitcell.sites)
     simplex_energies = [
-        calc_simplex_ev(model.unitcell, op, i, cache) for
+        calc_simplex_ev(model.unitcell, op, i, model.cache) for
         (i, op) in enumerate(model.observables[:H])
     ]
     real(sum(simplex_energies) / nsites)
