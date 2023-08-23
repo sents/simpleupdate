@@ -72,10 +72,12 @@ function nsite_op(op::Operator{T}, inds, dims) where {T}
     I_op = ⊗(
         [
             UniformScaling{T}(one(T))(d) |> collect for
-            (i, d) in enumerate(dims) if i ∉ inds
+                (i, d) in enumerate(dims) if i ∉ inds
         ]...,
     )
-    Operator(ncon((op.tensor, I_op), ([op_left; op_right] .* -1, [I_left; I_right] .* -1)))
+    Operator(
+        ncon((op.tensor, I_op), ([op_left; op_right] .* -1, [I_left; I_right] .* -1))
+    )
 end
 
 
