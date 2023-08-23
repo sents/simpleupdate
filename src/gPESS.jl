@@ -1,5 +1,6 @@
 # [[file:../SimpleUpdate.org::*gPESS][gPESS:1]]
 module gPESS
+import ..Definitions: s_x, s_y, s_z
 import ..Interface: register!, simple_update, per_site_energy
 using ..OptimalContraction
 using ..Operators
@@ -203,6 +204,10 @@ nvirt(::Simplex{M,N}) where {M,N} = M
 virtualsiteinds(s::Simplex) = range(nsites(s) + 1, nvirt(s))
 nsimps(::PESSSite{N}) where {N} = N
 psize(site::PESSSite) = size(site.tensor)[end]
+nsites(u::PESSUnitCell) = length(u.sites) + sum(nvirt, u.simplices)
+site_simplices(u::PESSUnitCell, snum) = [
+    (i,S) for (i,S) in enumerate(u.simplices) if snum in [S.sites..., S.vsites...]
+]
 
 
 """
@@ -557,6 +562,13 @@ function static_pess_su_info(u::PESSUnitCell, i_S, max_bond_rank, cache::Contrac
     )
 end
 
+calc_simplex_ev(model::PESSModel, op, n_simplex) = calc_simplex_ev(
+    model.unitcell,
+    op,
+    n_simplex,
+    model.cache
+)
+
 function calc_simplex_ev(u::PESSUnitCell, op, n_simplex, cache::ContractionCache)
     S = u.simplices[n_simplex]
     N = nsites(S)
@@ -733,18 +745,53 @@ function normalized_1site_ops(
         let simplex_sites = (simplex.sites..., simplex.vsites...)
             sum([
                 let
-                    occurrences = i <= nsites(simplex) ? nsimps(u.sites[i]) : 1
+                    isvirt = i > nsites(simplex)
+                    occurrences = isvirt ? 1 : nsimps(u.sites[i])
                     ⊗(
                         [
+                        let
+                            oisvirt = j>nsites(simplex)
+                            opsize = oisvirt ? size(simplex.tensor)[j] :
+                                               psize(u.sites[osnum])
                             i == j ? 1 / occurrences * ops[(sitetypes[snum],)].tensor :
-                            collect((one(T) * I)(psize(u.sites[osnum]))) for
-                            (j, osnum) in enumerate(simplex_sites)
+                            collect((one(T) * I)(opsize))
+                        end
+                        for (j, osnum) in enumerate(simplex_sites)
                         ]...,
                     ) |> Operator
                 end for (i, snum) in enumerate(simplex_sites)
             ])
         end for simplex in u.simplices
     ]
+end
+
+function calc_onesite_ops(ops, model)
+    u = model.unitcell
+    sitetypes = model.sitetypes
+    sites_ops = [
+        [
+            (S_num, onesite_to_simplex_ops(ops, u, S_num, s_num, sitetypes)) for
+            (S_num, _) in site_simplices(u, s_num)
+        ] for s_num = 1:nsites(u)
+    ]
+    return sites_ops
+end
+
+function onesite_to_simplex_ops(
+    ops::Dict{Tuple{Int},O},
+    u::PESSUnitCell,
+    S_num,
+    s_num,
+    sitetypes) where {O<:Operator{<:Any,1,<:Any}}
+    S = u.simplices[S_num]
+    isvirt = s_num ∈ S.vsites
+    occurrences = isvirt ? 1 : nsimps(u.sites[s_num])
+    simp_site_i = findfirst(==(s_num), isvirt ? S.vsites : S.sites)
+    simplex_site_pdims =
+        [psize.(u.sites[[S.sites...]])..., size(S.tensor)[virtualsiteinds(S)]...]
+    op = ops[(sitetypes[s_num],)]
+    simplex_op = nsite_op(1/occurrences * op, (simp_site_i,), simplex_site_pdims)
+    return simplex_op
 end
 
 function edge_signature(((s1, o1), (s2, o2)))
@@ -864,6 +911,22 @@ function per_site_energy(model::PESSModel)
         (i, op) in enumerate(model.observables[:H])
     ]
     real(sum(simplex_energies) / nsites)
+end
+
+
+function magnetizations(model::PESSModel)
+    spin_ops = Operator.((s_x, s_y, s_z))
+    spin_ops_dict = [Dict((i,) => s_i for i in model.sitetypes) for s_i in spin_ops]
+    spins_sites_ops = [calc_onesite_ops(s_i, model) for s_i in spin_ops_dict]
+    site_magnetizations = [
+        [
+            sum(
+                calc_simplex_ev(model, op, n_S) for
+                (n_S, op) in spins_sites_ops[spin_dir][site_num]
+            ) for spin_dir = 1:3
+        ] for site_num = 1:nsites(model.unitcell)
+    ]
+    return site_magnetizations
 end
 # gPESS:2 ends here
 
