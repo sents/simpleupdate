@@ -1,4 +1,5 @@
 module SimpleUpdate
+include("definitions.jl")
 include("interface.jl")
 include("optimal_contraction.jl")
 include("util.jl")

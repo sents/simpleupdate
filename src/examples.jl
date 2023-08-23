@@ -1,5 +1,6 @@
 # [[file:../SimpleUpdate.org::*Test Ising simple update][Test Ising simple update:1]]
 module Examples
+using ..Definitions
 using ..OptimalContraction
 using ..Operators
 using ..Util
@@ -29,21 +30,10 @@ s_x = σ_x / 2
 s_y = σ_y / 2
 s_z = σ_z / 2
 
-
 heisenberg_2site(J) = -J * (s_x ⊗ s_x + s_y ⊗ s_y + s_z ⊗ s_z)
 spin_1site(μ) = -μ * s_z
 
 ising_2site(J) = -J * (σ_z / 2 ⊗ σ_z / 2)
-
-ising_ops(u::PEPSUnitCell, J, μ) = [
-    Site2Operator(ising_2site(J)) + Site2Operator(site1_op) for
-    site1_op in normalized_1site_ops(spin_1site(μ), u)
-]
-
-M_squareab = [
-    1 2 3 4
-    3 4 1 2
-]
 
 function test_ising(J=1.0, μ=0.0; cuda=false)
     tocuda = identity
