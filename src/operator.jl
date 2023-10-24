@@ -36,6 +36,10 @@ function Base.:*(a::Number, b::Operator)
     return Operator(a .* b.tensor)
 end
 
+function Base.:*(a::Operator{T, N}, b::Operator{T, N}) where {T,N}
+    adim = size(a.tensor)
+    reshape(reshape(a.tensor, N, N) * reshape(b.tensor, N, N), adim)
+end
 
 ⊗(a::AbstractArray{T1,2}, b::AbstractArray{T2,2}) where {T1,T2} =
     @tensor c[i, j, k, l] := a[i, k] * b[j, l]
@@ -61,7 +65,7 @@ end
 end
 ⊗(x::AbstractArray) = x
 
-⊗(os::Vararg{Operator,N}) where {N} = ⊗(getproperty.(os, :tensor))
+⊗(os::Vararg{Operator,N}) where {N} = ⊗(getproperty.(os, :tensor)...)
 
 function nsite_op(op::Operator{T}, inds, dims) where {T}
     N = length(dims)
