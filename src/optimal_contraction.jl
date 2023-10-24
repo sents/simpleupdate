@@ -84,8 +84,6 @@ function optimal_contraction(
     end
 end
 
-Base.sort(t1::NTuple) = t1 |> collect |> sort |> Tuple
-
 without(vs, ns) = [v for (i, v) in enumerate(vs) if i ∉ ns]
 
 function make_ind_isless(start_inds)
