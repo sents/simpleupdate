@@ -173,7 +173,7 @@ function make_ordered_structurematrix(m0)
 end
 
 function connection_matrix_from_connections(
-    connections,
+    connections, # Tuples of ((n1,cell1,index1), (n2,cell2,index2))
     n_cells=maximum([getindex.(c, 2) for c in connections] |> Iterators.flatten),
 )
     n_sites = maximum([getindex.(c, 1) for c in connections] |> Iterators.flatten)
