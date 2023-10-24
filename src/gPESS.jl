@@ -796,7 +796,7 @@ end
 
 function edge_signature(((s1, o1), (s2, o2)))
     sinds = ((s1, o1), (s2, o2)) |> collect |> sort
-    diff = o1 - o2
+    diff = sinds[1][2] - sinds[2][2]
     Tuple([siten for (siten, origin) in sinds]), diff.I
 end
 
