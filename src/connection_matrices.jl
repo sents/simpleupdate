@@ -37,9 +37,16 @@ M_PESS_floretpentagon_petaltwirl =
 M_PESS_square =
     [((1, 1, 1), (1, 2, 2), (1, 3, 4), (1, 4, 3))] |> connection_matrix_from_connections
 
-M_PESS_kagome_3 =
-    [((1, 1, 1), (2, 1, 2), (3, 1, 1)), ((1, 4, 2), (2, 2, 1), (3, 3, 2))] |>
+M_PESS_kagome =
+    [((1, 1, 1), (2, 1, 1), (3, 1, 2)), ((1, 4, 2), (2, 3, 2), (3, 2, 1))] |>
     connection_matrix_from_connections
+M_PEPS_kagome = connection_matrix_from_connections([
+                     ((1,1,1),(2,1,3)),
+                     ((2,1,2),(3,1,4)),
+                     ((1,1,2),(3,1,3)),
+                     ((3,2,2),(2,3,4)),
+                     ((3,2,1),(1,4,4)),
+                     ((2,3,1),(1,4,3))], 4)
 
 M_PESS_triangular =
     connection_matrix_from_connections([((1, 1, 1), (1, 2, 2), (1, 3, 3))], 4)
@@ -48,7 +55,8 @@ connection_matrix_dict = Dict(
     "PEPS_floretpentagon" => M_PEPS_floretpentagon,
     "PESS_floretpentagon_petaltwirl" => M_PESS_floretpentagon_petaltwirl,
     "PESS_square" => M_PESS_square,
-    "PESS_kagome_3" => M_PESS_kagome_3,
+    "PESS_kagome" => M_PESS_kagome,
+    "PEPS_kagome" => M_PEPS_kagome,
 )
 # Connection Matrices:2 ends here
 
