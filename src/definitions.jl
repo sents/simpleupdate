@@ -7,8 +7,6 @@ export σ_x, σ_y, σ_z,
     ising_2site
 import LinearAlgebra: I
 
-const σ_z = [1 0; 0 -1.0]
-
 const σ_x = [
     0 1
     1 0.0
